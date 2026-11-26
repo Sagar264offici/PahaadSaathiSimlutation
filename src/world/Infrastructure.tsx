@@ -1,8 +1,9 @@
 import { useFrame } from '@react-three/fiber'
 import { useLayoutEffect, useMemo, useRef } from 'react'
-import { BoxGeometry, BufferGeometry, Color, DoubleSide, Float32BufferAttribute, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, Object3D, Vector3 } from 'three'
+import { BoxGeometry, BufferGeometry, Color, DoubleSide, Float32BufferAttribute, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, Vector3 } from 'three'
 import { clock, useGame } from '../game/GameEngine'
-import { CUES, phase } from '../game/Timeline'
+import { phase } from '../game/Timeline'
+import { roadIsBlocked } from '../game/Scenario'
 import { randomSeed, strip } from './geometry'
 import { bypass, closureEnd, closureStart, elevationAt, gateway, lodges, mainRoad, riverX } from './layout'
 
@@ -88,11 +89,20 @@ export function Roads() {
     }
   }, [])
   useFrame(() => {
+    const { scenario } = useGame.getState()
     if (alternate.current) {
-      alternate.current.visible = clock.time > CUES.diversion
-      route.setDrawRange(0, Math.floor(145 * phase(clock.time, CUES.diversion, CUES.turn)) * 6)
+      alternate.current.visible = scenario.routeAt !== null
+      if (scenario.routeAt !== null) route.setDrawRange(0, Math.floor(145 * phase(clock.time, scenario.routeAt, scenario.routeAt + 3.4)) * 6)
     }
-    if (closed.current) closed.current.visible = clock.time >= CUES.confirmed
+    if (closed.current) {
+      closed.current.visible = roadIsBlocked(scenario)
+      const material = closed.current.material
+      if (material instanceof MeshBasicMaterial) {
+        const confirmed = scenario.verification === 'Confirmed closure'
+        material.color.set(confirmed ? '#fd6355' : '#edaa60')
+        material.opacity = confirmed ? .62 : .22
+      }
+    }
   })
   return <>
     {roadSurfaces.map(({ gravel, tarmac, stripes }, index) => <group key={index}>

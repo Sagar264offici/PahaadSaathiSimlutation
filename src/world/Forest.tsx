@@ -4,7 +4,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { Suspense } from 'react'
 import { useGLTF } from '@react-three/drei'
 import { randomSeed, shade } from './geometry'
-import { elevationAt, gateway, lodges, nearestRoad, node, riverX, slope } from './layout'
+import { elevationAt, gateway, lodges, nearestRoad, node, relay, riverX, slope, witness } from './layout'
 import type { Quality } from '../game/GameEngine'
 
 type Stamp = { x: number; y: number; z: number; size: number; angle: number; color: number; tall: boolean }
@@ -48,7 +48,7 @@ function forestLayout(quality: Quality) {
     if (rand() > density || Math.abs(x - riverX(z)) < 9) continue
     const near = nearestRoad(x, z)
     if (near.distance < 6.35 || Math.hypot(x - gateway.x, z - gateway.z) < 9 ||
-      Math.hypot(x - node.x, z - node.z) < 8 || Math.hypot(x - slope.x, z - slope.z) < 10 ||
+      Math.hypot(x - node.x, z - node.z) < 8 || Math.hypot(x - relay.x, z - relay.z) < 6.5 || Math.hypot(x - witness.x, z - witness.z) < 5 || Math.hypot(x - slope.x, z - slope.z) < 15 ||
       lodges.some(([hx, hz, scale]) => Math.hypot(x - hx, z - hz) < 3.65 * scale + 1.1)) continue
     const y = elevationAt(x, z, near)
     trees.push({ x, y: y - .25, z, size: scale, angle, color, tall })

@@ -1,0 +1,247 @@
+export type Focus = 'world' | 'vehicle' | 'rockfall' | '1E' | '2L' | '3MH' | 'packet' | 'cloud' | 'community' | 'production'
+export type Verification = 'Normal' | 'Reported' | 'Under review' | 'Corroborated' | 'Confirmed closure' | 'Resolved' | 'Rejected'
+type PacketStep = 'ready' | 'sending-1E' | 'at-2L' | 'forwarding-2L' | 'at-3MH' | 'processing' | 'processed'
+export type Command = 'rockfall' | 'resetRockfall' | 'block' | 'vibration' | 'motion' | 'generate' |
+  'send' | 'receiveRelay' | 'forward' | 'receiveGateway' | 'process' | 'validate' | 'sync' |
+  'app' | 'draft' | 'submit' | 'correlate' | 'review' | 'corroborate' | 'confirm' | 'reject' | 'resolve' |
+  'planRoute' | 'driveRoute' | 'offline' | 'online' | 'retry' | 'prototype' | 'production' | 'alert'
+
+export const ROCK_SETTLES = 10.4
+export const FLIGHT = 5.5
+export const GATEWAY_WORK = 6
+export const CLOUD_WORK = 3.8
+export const COMMUNITY_FLIGHT = 4.5
+export const VEHICLE_AT_JUNCTION = 41
+export const REPORT_ID = 'CR-008'
+export const REPORT_CATEGORIES = ['Rockfall', 'Landslide', 'Road blockage', 'Fresh cracks', 'Flooding', 'Fallen tree', 'Damaged road', 'Other dangerous condition'] as const
+export type ReportCategory = typeof REPORT_CATEGORIES[number]
+export const EVENT_SEQUENCE = '00421'
+export const OBSERVATION = { zone: 'RIDGE-CUT 07', gps: '30.3274° N, 79.6128° E', category: 'Rockfall', description: 'Road blocked by fallen rocks.' } as const
+const sensorLocation = { latitude: 30.3275, longitude: 79.6126, zone: OBSERVATION.zone }
+const reportLocation = { latitude: 30.3274, longitude: 79.6128, zone: OBSERVATION.zone }
+const relativeDistance = Math.hypot(
+  (sensorLocation.latitude - reportLocation.latitude) * 111320,
+  (sensorLocation.longitude - reportLocation.longitude) * 111320 * Math.cos(sensorLocation.latitude * Math.PI / 180),
+)
+
+function validPacket(packet: Packet, hop: 0 | 1) {
+  return packet.type === 'ROCKFALL' && packet.origin === '1E' && /^\d{5}$/.test(packet.sequence) &&
+    packet.hop === hop && packet.ttl === 8 - hop && packet.sender === (hop === 0 ? '1E' : '2L')
+}
+
+function observationsMatch(s: Scenario) {
+  return s.packet !== null && s.observedAt !== null && (s.reportCategory === 'Rockfall' || s.reportCategory === 'Road blockage') && sensorLocation.zone === reportLocation.zone &&
+    relativeDistance < 50 && Math.abs(s.packet.createdAt - s.observedAt) <= 1800
+}
+
+type Packet = {
+  type: 'ROCKFALL'
+  origin: '1E'
+  sender: '1E' | '2L'
+  sequence: string
+  hop: number
+  ttl: number
+  step: PacketStep
+  at: number
+  createdAt: number
+}
+type Entry = { at: number; text: string }
+type Sync = 'idle' | 'pending' | 'syncing' | 'complete'
+
+export type Scenario = {
+  rockAt: number | null
+  settled: boolean
+  barrier: boolean
+  vibrationAt: number | null
+  motion: boolean
+  packet: Packet | null
+  internet: boolean
+  sync: Sync
+  syncAt: number | null
+  sensorInCloud: boolean
+  pendingSensor: boolean
+  pendingProbe: boolean
+  writingSensor: boolean
+  writingProbe: boolean
+  probeAt: number | null
+  probeReceived: boolean
+  seen: string[]
+  duplicate: 'Unchecked' | 'Passed' | 'Suppressed'
+  report: 'none' | 'open' | 'draft' | 'sending' | 'submitted'
+  reportAt: number | null
+  observedAt: number | null
+  reportCategory: ReportCategory
+  reportDescription: string
+  correlated: boolean
+  validated: boolean
+  verification: Verification
+  routeAt: number | null
+  turnAt: number | null
+  architecture: 'prototype' | 'production'
+  alert: boolean
+  log: Entry[]
+}
+
+export function initialScenario(): Scenario {
+  return {
+    rockAt: null, settled: false, barrier: false, vibrationAt: null, motion: false, packet: null,
+    internet: true, sync: 'idle', syncAt: null, sensorInCloud: false, pendingSensor: false, pendingProbe: false,
+    writingSensor: false, writingProbe: false, probeAt: null, probeReceived: false,
+    seen: [], duplicate: 'Unchecked', report: 'none', reportAt: null, observedAt: null,
+    reportCategory: 'Rockfall', reportDescription: OBSERVATION.description, correlated: false, validated: false,
+    verification: 'Normal', routeAt: null, turnAt: null, architecture: 'prototype', alert: false, log: [],
+  }
+}
+
+const logged = (s: Scenario, at: number, text: string, changes: Partial<Scenario> = {}): Scenario => ({
+  ...s, ...changes, log: [...s.log, { at, text }],
+})
+
+export const roadIsBlocked = (s: Scenario) => s.settled || s.barrier || s.verification === 'Confirmed closure'
+
+function syncNow(s: Scenario, t: number) {
+  if (s.sync === 'syncing' || (!s.pendingSensor && !s.pendingProbe)) return s
+  return s.internet
+    ? logged(s, t, 'SIMULATED SYNC STARTED', {
+      sync: 'syncing', syncAt: t, writingSensor: s.pendingSensor, writingProbe: s.pendingProbe,
+      pendingSensor: false, pendingProbe: false,
+    })
+    : logged(s, t, 'CLOUD SYNC PENDING · DEMO QUEUE', { sync: 'pending', syncAt: null })
+}
+
+function settleAt(s: Scenario, now: number) {
+  let next = s
+  // Resolve in chronological order so large frame steps and chapter seeks yield the same log.
+  for (;;) {
+    const rock = !next.settled && next.rockAt !== null ? next.rockAt + ROCK_SETTLES : Infinity
+    const packet = next.packet?.step === 'processing' ? next.packet.at + GATEWAY_WORK : Infinity
+    const cloud = next.sync === 'syncing' && next.syncAt !== null ? next.syncAt + CLOUD_WORK : Infinity
+    const phone = next.report === 'sending' && next.reportAt !== null && next.internet ? next.reportAt + COMMUNITY_FLIGHT : Infinity
+    const probe = next.probeAt !== null && !next.probeReceived ? next.probeAt + 8 : Infinity
+    const at = Math.min(rock, packet, cloud, phone, probe)
+    if (at > now) return next
+    if (at === rock) next = logged(next, at, 'MAJOR ROCKFALL · BOTH LANES BLOCKED', { settled: true })
+    else if (at === packet && next.packet) {
+      const key = next.packet.origin + '/' + next.packet.sequence
+      const duplicate = next.seen.includes(key)
+      next = logged(next, at, duplicate ? '3MH SUPPRESSED DUPLICATE PACKET' : '3MH VALIDATED ORIGIN AND SEQUENCE · GATEWAY PROCESSING COMPLETE', {
+        packet: { ...next.packet, step: 'processed', at },
+        duplicate: duplicate ? 'Suppressed' : 'Passed',
+        seen: duplicate ? next.seen : [...next.seen, key],
+        pendingSensor: next.pendingSensor || (!duplicate && !next.internet),
+        sync: !duplicate && !next.internet ? 'pending' : next.sync,
+      })
+    } else if (at === cloud) {
+      const arrived = next.writingSensor
+      next = logged(next, at, 'SUPABASE UPDATED · SIMULATED SYNC COMPLETE', {
+        sync: 'complete', syncAt: null, sensorInCloud: next.sensorInCloud || arrived,
+        writingSensor: false, writingProbe: false,
+        verification: next.verification === 'Normal' && arrived ? 'Reported' : next.verification,
+      })
+      if (next.pendingSensor || next.pendingProbe) next = syncNow(next, at)
+    }
+    else if (at === phone) next = logged(next, at, 'SIMULATED COMMUNITY REPORT RECEIVED · ' + REPORT_ID, {
+      report: 'submitted', verification: next.verification === 'Normal' ? 'Reported' : next.verification,
+    })
+    else if (at === probe) {
+      next = logged(next, at, '3MH RECEIVED RF DIAGNOSTIC 00422 · LOCAL LINK ACTIVE', {
+        probeReceived: true, pendingProbe: true,
+        sync: next.internet ? next.sync : 'pending',
+      })
+      if (next.internet && next.sync !== 'syncing') next = syncNow(next, at)
+    }
+  }
+}
+
+export const advanceScenario = settleAt
+
+export function commandIssue(s: Scenario, command: Command, now: number): string | undefined {
+  const packet = s.packet
+  const reviewable = s.verification === 'Reported' || s.verification === 'Under review' || s.verification === 'Corroborated'
+  switch (command) {
+    case 'rockfall': return s.rockAt !== null ? 'Reset the current rockfall first.' : undefined
+    case 'resetRockfall': return s.rockAt === null && !s.barrier && s.verification === 'Normal' && s.packet === null && s.vibrationAt === null && s.report === 'none' && !s.motion ? 'No incident to reset.' : undefined
+    case 'block': return roadIsBlocked(s) ? 'The primary road is already blocked.' : undefined
+    case 'vibration': return s.vibrationAt !== null ? 'The digital trigger has already been recorded.' : undefined
+    case 'motion': return s.motion ? 'Motion observation already recorded.' : undefined
+    case 'generate': return packet ? 'An event packet already exists.' : s.vibrationAt === null && !s.motion ? 'Record vibration or motion at 1E first.' : undefined
+    case 'send': return !packet || (packet.step !== 'ready' && packet.step !== 'processed') ? 'Generate a packet at 1E, or let the current delivery finish.' : undefined
+    case 'receiveRelay':
+      return packet?.step !== 'sending-1E' ? 'Send the packet from 1E first.' : now < packet.at + FLIGHT ? 'Packet is still in flight to 2L.' : !validPacket(packet, 0) ? '2L rejected the packet structure.' : undefined
+    case 'forward': return packet?.step !== 'at-2L' ? 'Receive and validate the packet at 2L first.' : undefined
+    case 'receiveGateway':
+      return packet?.step !== 'forwarding-2L' ? 'Forward the packet from 2L first.' : now < packet.at + FLIGHT ? 'Packet is still in flight to 3MH.' : !validPacket(packet, 1) ? '3MH rejected the packet origin, sequence, or hop metadata.' : undefined
+    case 'process': return packet?.step !== 'at-3MH' ? 'Receive the forwarded packet at 3MH first.' : undefined
+    case 'validate': return packet?.step !== 'processed' ? 'Complete gateway processing first.' : s.validated ? 'The evidence metadata has already been reviewed.' : undefined
+    case 'sync': return packet?.step !== 'processed' ? 'Complete gateway processing first.' : s.writingSensor || s.sensorInCloud ? 'The 1E record is already synchronizing or in Supabase.' : undefined
+    case 'app': return undefined
+    case 'draft': return s.report === 'sending' || s.report === 'submitted' ? 'A report is already submitted or in transit.' : undefined
+    case 'submit': return s.report !== 'draft' ? 'Create a community report first.' : !s.reportDescription.trim() ? 'Enter a description for the report.' : !s.internet ? 'Restore internet to submit the community report.' : undefined
+    case 'correlate': return s.correlated ? 'The nearby observations are already associated.' : !s.sensorInCloud || s.report !== 'submitted' ? 'Sync the 1E event and submit the community report first.' : !reviewable ? 'An active report is required.' : !observationsMatch(s) ? 'The simulated observations must describe a matching hazard nearby and close in time.' : undefined
+    case 'review': return s.verification !== 'Reported' ? 'A reported observation is required.' : undefined
+    case 'corroborate': return s.verification !== 'Under review' ? 'Mark the report under review first.' : !s.correlated ? 'Correlate the two evidence sources first.' : undefined
+    case 'confirm': return s.verification !== 'Corroborated' ? 'A moderator must review and corroborate the evidence first.' : !s.validated ? 'Review the gateway evidence metadata first.' : !roadIsBlocked(s) ? 'Field verification must find a blockage first.' : undefined
+    case 'reject': return !reviewable ? 'Only an active unconfirmed report can be rejected.' : undefined
+    case 'resolve': return s.verification !== 'Confirmed closure' ? 'Only a confirmed closure can be resolved.' : undefined
+    case 'planRoute': return s.routeAt !== null ? 'The simulated bypass is already available.' : !roadIsBlocked(s) ? 'Block the primary road first.' : undefined
+    case 'driveRoute': return s.routeAt === null ? 'Generate the alternate route first.' : s.turnAt !== null ? 'The SUV has already been routed onto the bypass.' : undefined
+    case 'offline': return !s.internet ? 'The internet is already offline.' : undefined
+    case 'online': return s.internet ? 'The internet is already online.' : undefined
+    case 'retry': return !s.internet ? 'Restore internet first.' : (!s.pendingSensor && !s.pendingProbe && s.sync !== 'syncing') ? 'There is no pending or active simulated synchronization.' : undefined
+    case 'prototype': return s.architecture === 'prototype' ? 'Prototype view is already active.' : undefined
+    case 'production': return s.architecture === 'production' ? 'The real-world proposal is already active.' : undefined
+    case 'alert': return s.verification !== 'Confirmed closure' ? 'Only an authorized closure sends this simulated alert.' : undefined
+  }
+}
+
+export function applyCommand(s: Scenario, command: Command, t: number): Scenario {
+  const packet = s.packet
+  if (commandIssue(s, command, t)) return s
+  switch (command) {
+    case 'rockfall': return logged(s, t, 'TREMOR AT THE EXPOSED ROCK CUT', { rockAt: t, settled: false })
+    case 'resetRockfall': return logged(initialScenario(), t, 'EXERCISE INCIDENT RESET · ROAD OPEN', { internet: s.internet, architecture: s.architecture, log: s.log })
+    case 'block': return logged(s, t, 'SIMULATED FIELD BARRIER · PRIMARY ROAD BLOCKED', { barrier: true })
+    case 'vibration': return logged(s, t, '1E · SW-420 DIGITAL TRIGGER ACTIVE', { vibrationAt: t })
+    case 'motion': return logged(s, t, '1E · MPU-6050 ABNORMAL MOTION OBSERVED', { motion: true })
+    case 'generate': return logged(s, t, '1E · ROCKFALL CANDIDATE EVENT 00421 GENERATED', {
+      packet: { type: 'ROCKFALL', origin: '1E', sender: '1E', sequence: EVENT_SEQUENCE, hop: 0, ttl: 8, step: 'ready', at: t, createdAt: t },
+    })
+    case 'send': return packet ? logged(s, t, '1E TRANSMITTING TO 2L OVER HC-12', { packet: { ...packet, sender: '1E', hop: 0, ttl: 8, step: 'sending-1E', at: t }, duplicate: 'Unchecked' }) : s
+    case 'receiveRelay': return packet ? logged(s, t, '2L RECEIVED 00421 · PACKET STRUCTURE VALIDATED', { packet: { ...packet, step: 'at-2L', at: t } }) : s
+    case 'forward': return packet && packet.ttl > 0 ? logged(s, t, '2L FORWARDED 00421 · CUSTOM FIRMWARE', { packet: { ...packet, sender: '2L', hop: packet.hop + 1, ttl: packet.ttl - 1, step: 'forwarding-2L', at: t } }) : s
+    case 'receiveGateway': return packet ? logged(s, t, '3MH RECEIVED 00421 · HC-12 TO TINKER BOARD UART', { packet: { ...packet, step: 'at-3MH', at: t } }) : s
+    case 'process': return packet ? logged(s, t, '3MH GATEWAY PROCESSING STARTED', { packet: { ...packet, step: 'processing', at: t } }) : s
+    case 'validate': return logged(s, t, 'GATEWAY EVIDENCE METADATA REVIEWED', { validated: true })
+    case 'sync': return syncNow({ ...s, pendingSensor: true }, t)
+    case 'retry': return s.sync === 'syncing' ? syncNow(logged(s, t, 'SIMULATED SYNC RETRY REQUESTED', {
+      sync: 'pending', syncAt: null, pendingSensor: s.pendingSensor || s.writingSensor,
+      pendingProbe: s.pendingProbe || s.writingProbe, writingSensor: false, writingProbe: false,
+    }), t) : syncNow(s, t)
+    case 'app': return s.report === 'none' ? { ...s, report: 'open' } : s
+    case 'draft': return logged(s, t, 'COMMUNITY REPORT DRAFTED · SIMULATED PHOTO ATTACHED', { report: 'draft', observedAt: t })
+    case 'submit': return logged(s, t, 'SETTLEMENT REPORT SUBMITTED TO SUPABASE', { report: 'sending', reportAt: t })
+    case 'correlate': return logged(s, t, '1E AND COMMUNITY OBSERVATIONS MATCHED AT ' + OBSERVATION.zone, { correlated: true })
+    case 'review': return logged(s, t, 'MODERATOR OPENED HAZARD REVIEW', { verification: 'Under review' })
+    case 'corroborate': return logged(s, t, 'MODERATOR CORROBORATED MULTI-SOURCE EVIDENCE', { verification: 'Corroborated' })
+    case 'confirm': return logged(s, t, 'AUTHORIZED FIELD CHECK CONFIRMED ROAD CLOSURE', { verification: 'Confirmed closure' })
+    case 'reject': return logged(s, t, 'MODERATOR REJECTED THE REPORT', { verification: 'Rejected', alert: false })
+    case 'resolve': return logged(s, t, 'AUTHORIZED CLEARANCE · HAZARD RESOLVED', {
+      verification: 'Resolved', rockAt: null, settled: false, barrier: false, routeAt: null, alert: false,
+    })
+    case 'planRoute': return logged(s, t, 'SIMULATED ALTERNATE ROUTE GENERATED', { routeAt: t })
+    case 'driveRoute': return logged(s, t, 'ROUTE UPDATED · SUV FOLLOWING THE BYPASS', { turnAt: Math.max(t, VEHICLE_AT_JUNCTION) })
+    case 'offline': return logged(s, t, 'INTERNET OFFLINE · RF DIAGNOSTIC 00422 SENT', {
+      internet: false, sync: 'pending', syncAt: null,
+      pendingSensor: s.pendingSensor || s.writingSensor, pendingProbe: s.pendingProbe || s.writingProbe,
+      writingSensor: false, writingProbe: false,
+      probeAt: t, probeReceived: false, report: s.report === 'sending' ? 'draft' : s.report,
+    })
+    case 'online': {
+      const online = logged(s, t, 'INTERNET RESTORED', { internet: true })
+      return online.pendingSensor || online.pendingProbe ? syncNow(online, t) : { ...online, sync: online.sensorInCloud ? 'complete' : 'idle' }
+    }
+    case 'prototype': return { ...s, architecture: 'prototype' }
+    case 'production': return { ...s, architecture: 'production' }
+    case 'alert': return logged(s, t, 'SIMULATED ROAD CLOSURE ALERT DELIVERED', { alert: true })
+  }
+}

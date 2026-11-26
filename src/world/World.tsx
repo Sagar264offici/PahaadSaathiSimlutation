@@ -7,7 +7,9 @@ import { useGame } from '../game/GameEngine'
 import { FieldHardware, GatewayHardware } from '../objects/Hardware'
 import { Incident } from '../objects/Incident'
 import { Network } from '../objects/Network'
-import { Phone } from '../objects/Phone'
+import { DriveMarkers } from '../objects/DriveMarkers'
+import { Deployment } from '../objects/Deployment'
+import { Phone, Witness } from '../objects/Phone'
 import { Atmosphere } from './Atmosphere'
 import { Forest } from './Forest'
 import { Roads, ValleyStructures } from './Infrastructure'
@@ -50,13 +52,17 @@ export default function World({ onReady, onFallback }: { onReady: () => void; on
     <Atmosphere shadows={config.shadows} />
     <Terrain quality={quality} />
     <Roads />
+    <DriveMarkers />
     <ValleyStructures />
     <Forest quality={quality} />
     <Vehicle />
-    <FieldHardware />
+    <FieldHardware id="1E" />
+    <FieldHardware id="2L" />
     <GatewayHardware />
-    <Incident />
+    <Incident quality={quality} />
     <Network />
+    <Witness />
     <Phone />
+    <Deployment />
   </Canvas>
 }

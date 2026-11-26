@@ -2,11 +2,12 @@ import { RoundedBox } from '@react-three/drei/core/RoundedBox.js'
 import { useFrame } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import { CanvasTexture, Group, SRGBColorSpace } from 'three'
-import { clock } from '../game/GameEngine'
-import { CUES, phase, smooth } from '../game/Timeline'
+import { clock, useGame } from '../game/GameEngine'
+import { OBSERVATION, REPORT_ID, type Scenario } from '../game/Scenario'
+import { CUES, STAGES } from '../game/Timeline'
 import { Box } from '../world/Infrastructure'
-import { closurePoint, phone } from '../world/layout'
-import { contourSvg, mapPoint, riverSvg, roadSvg } from '../world/map'
+import { closurePoint, phone, witness } from '../world/layout'
+import { bypassSvg, closureSvg, contourSvg, mapPoint, riverSvg, roadSvg } from '../world/map'
 
 const green = '#185b4a'
 const dark = '#172e27'
@@ -31,7 +32,7 @@ function createDisplay() {
     ctx.fillStyle = color
     ctx.fillText(value, x, y)
   }
-  function map(y: number, height: number, pin: boolean) {
+  function map(y: number, height: number, pin: boolean, alternate = false) {
     ctx.save()
     ctx.beginPath()
     ctx.rect(0, y, 414, height)
@@ -45,7 +46,13 @@ function createDisplay() {
       ctx.strokeStyle = color
       ctx.stroke(new Path2D(path))
     }
+    if (alternate) {
+      ctx.strokeStyle = '#378c76'; ctx.lineWidth = 1.95; ctx.setLineDash([3, 2])
+      ctx.stroke(new Path2D(bypassSvg)); ctx.setLineDash([])
+    }
     if (pin) {
+      ctx.strokeStyle = '#af5640'; ctx.lineWidth = 3.3
+      ctx.stroke(new Path2D(closureSvg))
       const [x, z] = mapPoint(closurePoint)
       ctx.beginPath()
       ctx.ellipse(x, z, 14, 9, 0, 0, Math.PI * 2)
@@ -59,67 +66,113 @@ function createDisplay() {
     ctx.restore()
   }
 
-  function draw(time: number) {
-    const showMap = time >= 100.7
-    const arrival = smooth(phase(time, 94, 95.1))
+  function draw(report: Scenario['report'], alert: boolean, timestamp: string, alternate = false, category: string = OBSERVATION.category, description: string = OBSERVATION.description) {
     block(0, 0, 414, 828, 0, '#f0f3ea')
     block(0, 0, 414, 138, 0, green)
     label('09:41', 26, 35, 16, 600, '#ebf4e8')
     label('PahaadSaathi', 28, 94, 34, 740, '#ffffff')
-    label('Configured demonstration location', 29, 119, 15, 560, '#c2e3d4')
-    map(138, showMap ? 505 : 388, arrival > .32)
-    block(25, 157, 111, 33, 15, '#edf3e6')
-    label('RIDGE SECTOR', 37, 179, 12, 760, green)
-    if (showMap) {
-      block(21, 613, 372, 143, 19, '#ffffff')
-      label('Hazard location', 42, 654, 27, 740, dark)
-      label('PS-001  ·  NODE-01', 43, 687, 18, 550, green)
-      label('UNDER REVIEW', 43, 726, 16, 750, gold)
-    } else if (arrival > 0) {
-      const y = 422 + (1 - arrival) * 320
-      block(17, y + 7, 380, 285, 23, '#23423932')
-      block(17, y, 380, 285, 23, '#fffef9')
-      block(38, y + 20, 170, 29, 13, '#f7e8d4')
-      label('SIMULATED ALERT', 51, y + 39, 14, 760, gold)
-      label('Potential road hazard', 38, y + 87, 26, 780, dark)
-      label('A vibration-related event has been', 38, y + 124, 17, 550, '#3d554c')
-      label('reported near your route.', 38, y + 148, 17, 550, '#3d554c')
-      label('STATUS  ·  UNDER REVIEW', 38, y + 190, 16, 760, gold)
-      block(38, y + 212, 338, 48, 12, green)
-      label('VIEW HAZARD', 140, y + 243, 18, 760, '#fff')
+    label('Ridge Hamlet · field exercise', 29, 119, 15, 560, '#c2e3d4')
+    if (alert) {
+      map(138, 455, true, alternate)
+      block(19, 475, 376, 249, 23, '#fffef9')
+      label('SIMULATED ROAD ALERT', 40, 515, 16, 760, gold)
+      label('Confirmed road closure', 40, 560, 28, 780, dark)
+      label('Both lanes blocked by rockfall.', 40, 602, 18, 550, dark)
+      label(OBSERVATION.zone + '  ·  3MH', 40, 636, 16, 700, green)
+      block(40, 658, 334, 40, 9, green)
+      label('HAZARD MAP', 150, 685, 16, 740, '#fff')
+    } else if (report === 'draft' || report === 'sending' || report === 'submitted') {
+      label(report === 'submitted' ? 'Report received' : 'Report a hazard', 27, 184, 32, 770, dark)
+      label('SIMULATED COMMUNITY REPORT', 28, 215, 15, 710, gold)
+      block(22, 236, 370, 108, 13, '#fffef9')
+      label('HAZARD CATEGORY', 42, 267, 14, 740, green)
+      label(category, 42, 302, 24, 750, dark)
+      label(description.length > 40 ? description.slice(0, 39) + '…' : description, 42, 327, 17, 520, dark)
+      block(22, 354, 370, 108, 13, '#fffef9')
+      label('SIMULATED GPS LOCATION', 42, 383, 13, 730, green)
+      label(OBSERVATION.gps, 42, 410, 18, 670, dark)
+      label('Simulated time  ·  ' + timestamp, 42, 439, 16, 550, dark)
+      block(22, 475, 370, 161, 13, '#fffef9')
+      label('PHOTO ATTACHED · ILLUSTRATIVE', 42, 502, 13, 720, green)
+      block(42, 514, 330, 99, 6, '#b4c5b1')
+      ctx.fillStyle = '#7b845e'
+      ctx.beginPath()
+      ctx.moveTo(43, 590); ctx.lineTo(171, 522); ctx.lineTo(234, 581); ctx.lineTo(299, 535); ctx.lineTo(369, 584); ctx.lineTo(369, 607); ctx.lineTo(43, 607)
+      ctx.fill()
+      block(43, 582, 326, 25, 2, '#4a534b')
+      for (const [x, y, size] of [[144, 581, 21], [183, 568, 25], [221, 575, 28], [253, 583, 18]]) {
+        ctx.fillStyle = '#a49377'; ctx.beginPath()
+        ctx.moveTo(x - size, y + 12); ctx.lineTo(x - size * .56, y - 4); ctx.lineTo(x + size * .41, y - 13); ctx.lineTo(x + size, y + 12); ctx.fill()
+      }
+      block(22, 661, 370, 61, 12, green)
+      label(report === 'draft' ? 'SUBMIT REPORT' : report === 'sending' ? 'SENDING TO SUPABASE' : REPORT_ID + ' · RECEIVED', 87, 700, 19, 770, '#fff')
+    } else {
+      map(138, 449, false)
+      label('Ridge Sector', 25, 620, 24, 750, dark)
+      label('Record a hazard near the settlement.', 25, 653, 17, 560, green)
+      block(24, 670, 366, 49, 12, green)
+      label('CREATE REPORT', 126, 701, 18, 750, '#fff')
     }
     block(0, 762, 414, 66, 0, '#fffef9')
     label('Map', 51, 799, 17, 740, green)
     label('Alerts', 182, 799, 17, 660, '#5d6f61')
-    label('About', 315, 799, 17, 660, '#5d6f61')
+    label('Report', 309, 799, 17, 660, '#5d6f61')
     block(139, 815, 136, 5, 3, '#273931')
     texture.needsUpdate = true
   }
 
-  draw(0)
+  draw('none', false, '')
   return { texture, draw }
+}
+
+export function Witness() {
+  const rig = useRef<Group>(null)
+  useFrame(() => {
+    if (!rig.current) return
+    const s = useGame.getState().scenario
+    rig.current.rotation.y = s.report === 'none' ? -.54 : -.27 + Math.sin(clock.time * .8) * .07
+  })
+  return <group ref={rig} position={witness} onClick={(e) => {
+    if (useGame.getState().control === 'presenter' && e.delta < 5) { e.stopPropagation(); useGame.getState().command('app', 'community') }
+  }}>
+    {[-.15, .15].map((x) => <group key={x}>
+      <Box size={[.21, .7, .22]} position={[x, .46, 0]} color="#35443e" shadow />
+      <Box size={[.23, .14, .34]} position={[x, .1, .075]} color="#282d2b" />
+    </group>)}
+    <Box size={[.49, .64, .31]} position={[0, 1.07, 0]} color="#945d3d" shadow />
+    <Box size={[.31, .31, .31]} position={[0, 1.58, 0]} color="#ae7652" />
+    <Box size={[.38, .15, .39]} position={[0, 1.71, 0]} color="#3f6354" />
+    {[-.32, .32].map((x) => <Box key={x} size={[.16, .52, .16]} position={[x, 1.09, .19]} rotation={[-.75, 0, 0]} color="#ab704d" />)}
+    <Box size={[.22, .34, .06]} position={[.03, 1.27, .39]} rotation={[-.24, 0, 0]} color="#253732" glow />
+  </group>
 }
 
 export function Phone() {
   const mesh = useRef<Group>(null)
-  const last = useRef(-1)
+  const last = useRef('')
   const display = useMemo(createDisplay, [])
   useEffect(() => () => display.texture.dispose(), [display])
   useFrame(() => {
     if (!mesh.current) return
+    const game = useGame.getState()
+    const { scenario, mode } = game
+    const focus = game.control === 'presenter' ? game.focus : STAGES[game.stage].focus
     const time = clock.time
-    mesh.current.visible = time >= CUES.mobile - .8 && time < CUES.review + 2.5 || time >= CUES.overview
-    if (!mesh.current.visible) { last.current = -1; return }
-    mesh.current.position.copy(phone).y += Math.sin(time * 1.18) * .14
-    const angle = smooth(phase(time, CUES.mobile - .8, CUES.mobile + 2.5))
-    mesh.current.rotation.set(-.06, -.55 + angle * .71, .045 - .035 * angle)
-    const step = Math.floor(time * 24)
-    if (last.current === step || (time >= 95.2 && time < 100.7 && last.current >= 95.2 * 24) || (time >= 101 && last.current >= 101 * 24)) return
-    if (time < 94 && last.current >= 0 && last.current < 94 * 24) return
-    last.current = step
-    display.draw(time)
+    mesh.current.visible = mode !== 'menu' && scenario.architecture === 'prototype' &&
+      (focus === 'community' || (game.control === 'auto' && time >= CUES.overview))
+    if (!mesh.current.visible) return
+    mesh.current.position.copy(phone).y += Math.sin(time * 1.18) * .09
+    mesh.current.rotation.set(-.06, .10, .015)
+    const key = scenario.report + '/' + scenario.alert + '/' + scenario.observedAt + '/' + scenario.routeAt + '/' + scenario.reportCategory + '/' + scenario.reportDescription
+    if (last.current === key) return
+    last.current = key
+    const seconds = Math.floor(scenario.observedAt ?? 0)
+    const timestamp = '14:' + String(2 + Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0')
+    display.draw(scenario.report, scenario.alert, timestamp, scenario.routeAt !== null, scenario.reportCategory, scenario.reportDescription)
   })
-  return <group ref={mesh} position={phone} visible={false}>
+  return <group ref={mesh} position={phone} visible={false} onClick={(e) => {
+    if (useGame.getState().control === 'presenter' && e.delta < 5) { e.stopPropagation(); useGame.getState().command('app', 'community') }
+  }}>
     <RoundedBox args={[2.53, 4.85, .265]} radius={.18} smoothness={3}>
       <meshStandardMaterial color="#212e2b" roughness={.42} metalness={.45} />
     </RoundedBox>

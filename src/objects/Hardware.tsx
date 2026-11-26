@@ -3,9 +3,9 @@ import { useFrame } from '@react-three/fiber'
 import { useRef } from 'react'
 import { Group, Vector3 } from 'three'
 import { clock, useGame } from '../game/GameEngine'
-import { CUES, phase, smooth } from '../game/Timeline'
+import { CUES, STAGES } from '../game/Timeline'
 import { Box } from '../world/Infrastructure'
-import { gateway, node } from '../world/layout'
+import { gateway, node, relay } from '../world/layout'
 
 const pins = (count: number) => Array.from({ length: count }, (_, index) => index)
 const silver = '#b5c0b9'
@@ -139,30 +139,47 @@ const flowLines: [number, number, number][][] = [
 ]
 const localPulse = new Vector3(), localNext = new Vector3()
 
-export function FieldHardware() {
+function NodeMarker({ id, role }: { id: '1E' | '2L' | '3MH'; role: string }) {
+  const presenter = useGame((state) => state.control === 'presenter')
+  return <Html position={[0, 4.3, 0]} center zIndexRange={[16, 13]} pointerEvents={presenter ? 'auto' : 'none'} distanceFactor={18}>
+    {presenter ? <button className="world-tag node-tag" title={role} onClick={() => useGame.getState().inspect(id)} aria-label={'Inspect node ' + id}>{id}<span>{role}</span></button> :
+      <div className="world-tag node-tag">{id}<span>{role}</span></div>}
+  </Html>
+}
+
+export function FieldHardware({ id }: { id: '1E' | '2L' }) {
   const cover = useRef<Group>(null)
   const spark = useRef<Group>(null)
-  const second = useGame((state) => state.second)
-  const inspection = second >= CUES.node + 2 && second < CUES.vibration - 1 || second >= CUES.processing + 2 && second < CUES.radio
-  const processing = second >= CUES.processing && second < CUES.radio
-  useFrame(() => {
+  const position = id === '1E' ? node : relay
+  const architecture = useGame((state) => state.scenario.architecture)
+  const mode = useGame((state) => state.mode)
+  const control = useGame((state) => state.control)
+  const focus = useGame((state) => state.control === 'presenter' ? state.focus : STAGES[state.stage].focus)
+  const packetStep = useGame((state) => state.scenario.packet?.step)
+  const inspection = focus === id
+  const processing = inspection && (id === '1E' ? packetStep === 'ready' : packetStep === 'at-2L' || packetStep === 'forwarding-2L')
+  useFrame((_, delta) => {
+    const game = useGame.getState()
     const t = clock.time
-    const open = Math.max(
-      smooth(phase(t, CUES.node, CUES.node + 2)) * (1 - smooth(phase(t, CUES.vibration - .5, CUES.vibration + 1.2))),
-      smooth(phase(t, CUES.processing, CUES.processing + 2)) * (1 - smooth(phase(t, CUES.radio + 2, CUES.radio + 4))),
-      smooth(phase(t, CUES.overview, CUES.overview + 3)),
-    )
-    if (cover.current) cover.current.rotation.x = -open * 2.08
-    if (spark.current) {
-      const traversal = ((t - CUES.processing + 3) * .58 % 3 + 3) % 3
+    const active = game.control === 'presenter' ? game.focus === id :
+      id === '1E' ? t >= CUES.node && t < CUES.approach || t >= CUES.detection && t < CUES.radio + 1 :
+        t >= CUES.relay && t < CUES.forward + 1.3
+    if (cover.current && game.mode !== 'paused') cover.current.rotation.x += ((active ? -2.08 : 0) - cover.current.rotation.x) * (1 - Math.exp(-delta * 5))
+    if (spark.current && processing) {
+      const traversal = (t * .9 % 3 + 3) % 3
       const baseline = flowLines[Math.floor(traversal)]
       const amount = (traversal % 1) * 3
       localPulse.fromArray(baseline[Math.floor(amount)]).lerp(localNext.fromArray(baseline[Math.min(3, Math.floor(amount) + 1)]), amount % 1)
       spark.current.position.copy(localPulse)
     }
   })
-  return <group position={node}>
-    <Box size={[1.8, .22, 1.66]} position={[0, .08, 0]} color="#7b7e66" />
+  if (architecture !== 'prototype') return null
+  return <group position={position} onClick={(e) => {
+    if (control === 'presenter' && e.delta < 5) { e.stopPropagation(); useGame.getState().inspect(id) }
+  }}>
+    {mode !== 'menu' && !inspection && <NodeMarker id={id} role="Sensor / relay" />}
+    <Box size={[6.55, .48, 3.95]} position={[0, -.18, .05]} color="#716f5b" shadow />
+    <Box size={[1.8, .22, 1.66]} position={[0, .13, 0]} color="#7b7e66" />
     <Box size={[.22, 1.48, .22]} position={[-1.22, .69, .37]} color="#60665b" shadow />
     <Box size={[.22, 1.48, .22]} position={[1.19, .69, .37]} color="#60665b" shadow />
     <Box size={[5.9, .23, 2.78]} position={[0, 1.37, 0]} color="#424c43" shadow />
@@ -186,9 +203,23 @@ export function FieldHardware() {
 }
 
 export function GatewayHardware() {
-  const s = useGame((state) => state.second)
-  const active = (s >= CUES.gateway + 2 && s < CUES.cloud) || (s >= CUES.offline + 2 && s < CUES.overview)
-  return <group position={gateway}>
+  const mode = useGame((state) => state.mode)
+  const control = useGame((state) => state.control)
+  const focus = useGame((state) => state.control === 'presenter' ? state.focus : STAGES[state.stage].focus)
+  const architecture = useGame((state) => state.scenario.architecture)
+  const step = useGame((state) => state.scenario.packet?.step)
+  const spark = useRef<Group>(null)
+  const active = focus === '3MH'
+  useFrame(() => {
+    if (!spark.current) return
+    const t = (clock.time % 1.8) / 1.8
+    spark.current.position.set(-1.91 + t * 2.1, 1.72 + Math.sin(t * Math.PI) * .18, .28 - t * 1.06)
+  })
+  if (architecture !== 'prototype') return null
+  return <group position={gateway} onClick={(e) => {
+    if (control === 'presenter' && e.delta < 5) { e.stopPropagation(); useGame.getState().inspect('3MH') }
+  }}>
+    {mode !== 'menu' && !active && <NodeMarker id="3MH" role="Main headquarters" />}
     <Box size={[5.95, .34, 2.86]} position={[0, 1.3, 0]} color="#4c574b" shadow />
     <Box size={[5.82, .055, 2.66]} position={[0, 1.51, 0]} color="#7d8371" />
     <Box size={[.21, 1.37, 1.66]} position={[-2.59, .61, 0]} color="#626d63" shadow />
@@ -198,5 +229,8 @@ export function GatewayHardware() {
     <Line points={[[-1.93, 1.68, .31], [-1.53, 1.87, .44], [-1.28, 1.78, .06], [-.60, 1.68, -.63], [.23, 1.72, -.78]]}
       color={active ? '#93f3ca' : '#a6915b'} lineWidth={active ? 2.8 : 1.5} />
     {active && <Labels labels={gatewayLabels} />}
+    {(step === 'at-3MH' || step === 'processing') && <group ref={spark}>
+      <mesh><sphereGeometry args={[.10, 10, 6]} /><meshBasicMaterial color="#d7ffe4" toneMapped={false} /></mesh>
+    </group>}
   </group>
 }
