@@ -2,6 +2,7 @@ import { Activity, Antenna, ArrowDown, Database, Radio, ShieldCheck, Smartphone 
 import { useGame } from '../game/GameEngine'
 import { FLIGHT, OBSERVATION, REPORT_ID, roadIsBlocked, type Focus, type Scenario } from '../game/Scenario'
 import { logTime } from './Presenter'
+import { MiniMap } from './MiniMap'
 
 export const focusLabels: Record<Focus, [title: string, description: string]> = {
   world: ['Ridge sector overview', 'Inspect the mountain road, three prototype nodes, and the nearby settlement.'],
@@ -14,6 +15,7 @@ export const focusLabels: Record<Focus, [title: string, description: string]> = 
   cloud: ['Supabase and hazard verification', 'The backend associates the NODE-01 observation and the community report. A human moderator reviews the evidence.'],
   community: ['Ridge Hamlet community report', 'A witness uses PahaadSaathi to report the blocked road from the settlement.'],
   production: ['Real-world deployment', 'Proposed Himalayan regional coverage combines targeted sensing and community reporting.'],
+  route: ['West valley detour', 'Turn around, retrace the primary road, and leave it at the last accessible junction.'],
 }
 
 export function Facts({ data }: { data: readonly (readonly [string, string])[] }) {
@@ -35,10 +37,10 @@ function PacketInspector({ scenario, now }: { scenario: Scenario; now: number })
   return <details className="packet-inspector" open>
     <summary><Radio size={14} /> Packet inspector <span>SIMULATED LoRa</span></summary>
     <Facts data={[
-      ['Network', 'LoRa'], ['Packet ID', packet.sequence], ['Origin', packet.origin],
+      ['Network', 'LoRa'], ['Packet ID', packet.sequence], ['Origin', packet.origin], ['Source', 'Remote sensor station'],
       ...(packet.hop ? [['Forwarder', packet.sender] as const] : []),
       ['Event', packet.type], ['Sensor status', scenario.motion ? 'Abnormal · simulated' : 'Vibration trigger · simulated'],
-      ['Hop count', String(packet.hop)], ['Packet status', step],
+      ['Timestamp', logTime(packet.createdAt) + ' · simulated'], ['Hop count', String(packet.hop)], ['Packet status', step],
     ]} />
   </details>
 }
@@ -62,6 +64,7 @@ function GatewaySteps({ scenario, now }: { scenario: Scenario; now: number }) {
     <Facts data={[
       ['Receiver interface', 'LoRa module → Tinker Board'],
       ['Packet validation', steps[1][1] ? 'Passed' : 'Awaiting packet processing'],
+      ['Gateway receipt', scenario.gatewayReceipt ?? 'Waiting for a packet'],
       ['Duplicate check', done ? scenario.duplicate : steps[2][1] ? 'Checking origin and sequence' : 'Standby'],
       ['Gateway processing', done ? 'Complete' : processing ? 'Started' : 'Standby'],
       ['Cloud sync', scenario.sync], ['RF diagnostic', scenario.probeReceived ? 'PS-002 received locally' : scenario.probeAt === null ? 'Standby' : 'PS-002 in transit'], ['Internet', scenario.internet ? 'Online' : 'Offline'],
@@ -88,6 +91,7 @@ function MotionReadings({ age }: { age: number }) {
 export function Inspection({ focus }: { focus: Focus }) {
   const scenario = useGame((state) => state.scenario)
   const second = useGame((state) => state.second)
+  if (focus === 'route') return <MiniMap inline navigation />
   if (focus === 'production') return <div className="deployment-copy">
     <div className="eyebrow"><Antenna size={14} /> PRODUCTION PROPOSAL · LoRa</div>
     <Facts data={[
@@ -101,6 +105,10 @@ export function Inspection({ focus }: { focus: Focus }) {
       <p>Inclinometers and tilt sensors for slope movement. Piezometers and rain gauges for water conditions. Extensometers for crack displacement. Vibration or seismic instruments where justified.</p>
     </details>
   </div>
+  if (focus === 'NODE-01' && !scenario.nodeOnline) return <Facts data={[
+    ['NODE-01', 'Offline · communication lost'], ['Sensor data', 'Unavailable · current hazard status unknown'],
+    ['Last telemetry', scenario.lastTelemetryAt === null ? 'No sample' : logTime(scenario.lastTelemetryAt)],
+  ]} />
   if (focus === 'NODE-01') return <>
     <div className="inspection-extra"><span className="eyebrow"><Activity size={14} /> SIMULATED SENSOR DATA</span>
       <dl>

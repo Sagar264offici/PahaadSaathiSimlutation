@@ -7,6 +7,8 @@
 | Barlow Condensed Bold | The Barlow Project Authors, [source](https://github.com/google/fonts/tree/main/ofl/barlowcondensed) | SIL Open Font License 1.1. Notice in `public/fonts/barlow-OFL.txt`. |
 | Inter and IBM Plex Mono | [Inter](https://github.com/rsms/inter) and [IBM Plex](https://github.com/IBM/plex), bundled through Fontsource | SIL Open Font License 1.1. Notices in `public/fonts/inter-OFL.txt` and `public/fonts/ibm-plex-mono-OFL.txt`. |
 | Driving soundtrack | User-supplied `DrDriving.wav`, encoded as `public/audio/dr-driving.mp3` | Supplied project audio. |
+| Rockfall sound | User-supplied `stone-falling.wav`, trimmed and encoded as `public/audio/stone-falling.mp3` | Supplied project audio. |
+| App home panorama | `public/images/ridge-view.webp`, rendered from the PahaadSaathi valley scene | Original project artwork using the credited game assets. |
 | Interface icons | [Lucide](https://lucide.dev/) | ISC. Notice in `public/lucide-LICENSE.txt`. |
 
 The valley, mountain ranges, pine and deodar models, houses, road meshes, bridge, slope debris, hardware models, phone interface, and synthesized cues are original procedural assets. The hardware geometry is illustrative. Component modeling references include the [Espressif ESP32-C3 documentation](https://www.espressif.com/en/products/socs/esp32-c3), [Semtech’s LoRa PHY overview](https://www.semtech.com/lora/what-is-lora), [Seeed Studio’s SW-420 documentation](https://wiki.seeedstudio.com/Grove-Vibration_Sensor_SW-420/), and [ASUS’s original Tinker Board documentation](https://tinker-board.asus.com/documentation/tb.html).

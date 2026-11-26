@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { Color, DoubleSide, Group, IcosahedronGeometry, InstancedBufferAttribute, InstancedMesh, Object3D, PlaneGeometry, Vector3 } from 'three'
 import { clock, useGame, type Quality } from '../game/GameEngine'
 import { roadIsBlocked } from '../game/Scenario'
-import { phase } from '../game/Timeline'
+import { CUES, phase } from '../game/Timeline'
 import { randomSeed } from '../world/geometry'
 import { Box } from '../world/Infrastructure'
 import { closurePoint, closureStart, elevationAt, mainRoad, node, slope } from '../world/layout'
@@ -104,8 +104,8 @@ export function Incident({ quality }: { quality: Quality }) {
   const settled = useGame((state) => state.scenario.settled)
   const blockedByBarrier = useGame((state) => state.scenario.barrier)
   const incident = rockAt !== null
-  const establishing = control === 'auto' && second >= 13 && second < 33
-  const surveying = control === 'drive' && rockAt !== null && second < rockAt + 11 && focus === 'vehicle'
+  const establishing = control === 'auto' && second >= 2 && second < CUES.approach + 1
+  const surveying = control === 'drive' && second < (rockAt ?? second) + 7 && focus === 'vehicle'
   useLayoutEffect(() => {
     const mesh = rocks.current
     if (!mesh) return

@@ -1,11 +1,12 @@
 import { Matrix3, Matrix4, Vector3 } from 'three'
 import { OBB } from 'three/addons/math/OBB.js'
-import { bypass, junctionU, mainRoad } from '../world/layout'
-import { advanceScenario, applyCommand, FLIGHT, type Command, type Focus, type Scenario } from './Scenario'
+import { bypass, junctionU, landslideDistance, landslideU, mainRoad, retraceU, safeReturnU, startU } from '../world/layout'
+import { applyCommand, type Focus, type Scenario } from './Scenario'
+import { applyResponse } from './Timeline'
 
 type Route = 'ridge' | 'bypass'
-export type Gate = 'rockfall' | 'sensors' | 'junction' | 'finish'
-export type DriveAction = 'station' | 'monitor' | 'track' | 'gateway' | 'evidence' | 'confirm'
+export type Gate = 'rockfall' | 'junction' | 'safe-return' | 'finish'
+export type RouteChoice = 'safe-return' | 'detour'
 export type DriveInput = { throttle: number; brake: boolean; steer: number }
 export type DriveState = {
   route: Route
@@ -15,16 +16,18 @@ export type DriveState = {
   steering: number
   odometer: number
   gates: readonly Gate[]
-  inspectedAt: Readonly<Partial<Record<DriveAction, number>>>
+  choice: RouteChoice | null
 }
 
 const roads = { ridge: mainRoad, bypass }
 const lengths = { ridge: mainRoad.getLength(), bypass: bypass.getLength() }
 const junction = junctionU * lengths.ridge
+const start = startU * lengths.ridge
+const safeReturn = safeReturnU * lengths.bypass
 export const TOP_SPEED = 19
 
 export function newDrive(): DriveState {
-  return { route: 'ridge', distance: lengths.ridge * .045, lane: 0, speed: 0, steering: 0, odometer: 0, gates: [], inspectedAt: {} }
+  return { route: 'ridge', distance: start, lane: 0, speed: 0, steering: 0, odometer: 0, gates: [], choice: null }
 }
 
 const tangent = new Vector3()
@@ -52,10 +55,10 @@ function roadBox(route: Route, u: number, halfWidth: number, halfDepth: number) 
 }
 
 export const DRIVE_GATES = [
-  { id: 'rockfall', route: 'ridge', ...roadBox('ridge', .219, 3.35, 3.2) },
-  { id: 'sensors', route: 'ridge', ...roadBox('ridge', .449, 3.35, 3.3) },
+  { id: 'rockfall', route: 'ridge', ...roadBox('ridge', landslideU, 3.35, 3.2) },
   { id: 'junction', route: 'ridge', ...roadBox('ridge', .478, 3.4, 3.2) },
-  { id: 'finish', route: 'bypass', ...roadBox('bypass', .94, 3.35, 3.35) },
+  { id: 'safe-return', route: 'bypass', ...roadBox('bypass', safeReturnU, 5, 3.8) },
+  { id: 'finish', route: 'bypass', ...roadBox('bypass', .985, 3.35, 3.35) },
 ] as const
 export const ROADBLOCK = roadBox('ridge', .497, 3.55, 1.7)
 const body = new OBB(new Vector3(), new Vector3(1.27, 1.05, 2.05), new Matrix3())
@@ -76,7 +79,9 @@ function approach(value: number, target: number, change: number) {
 export function stepDrive(state: DriveState, input: DriveInput, blocked: boolean, bypassOpen: boolean, dt: number): DriveState {
   if (state.gates.includes('finish')) return state
   // The caller substeps at 60 Hz, so the SUV cannot jump over a trigger in one render frame.
-  const target = input.brake ? 0 : input.throttle >= 0 ? input.throttle * TOP_SPEED : input.throttle * 5
+  const approachLimit = blocked && state.route === 'ridge' ? Math.sqrt(14 * Math.max(1, junction - state.distance)) : TOP_SPEED
+  const turnLimit = state.route === 'bypass' && state.distance < retraceU * lengths.bypass ? 8 : TOP_SPEED
+  const target = input.brake ? 0 : input.throttle >= 0 ? input.throttle * Math.min(TOP_SPEED, approachLimit, turnLimit) : input.throttle * 5
   const rate = input.brake ? 24 : target === 0 ? 5 : state.speed * target < 0 ? 14 : 7
   const speed = approach(state.speed, target, dt * rate)
   const steering = approach(state.steering, input.steer, dt * 7.5)
@@ -84,7 +89,7 @@ export function stepDrive(state: DriveState, input: DriveInput, blocked: boolean
   let route = state.route
   let distance = state.distance + speed * dt
 
-  if (route === 'ridge' && bypassOpen && input.steer < -.32 && speed > 0 && distance >= junction && state.distance <= junction + 3) {
+  if (route === 'ridge' && bypassOpen && (state.choice !== null || input.steer < -.32) && speed > 0 && distance >= junction && state.distance <= junction + 3) {
     route = 'bypass'
     distance = Math.max(0, distance - junction)
   } else if (route === 'bypass' && distance < 0) {
@@ -92,9 +97,9 @@ export function stepDrive(state: DriveState, input: DriveInput, blocked: boolean
     distance += junction
   }
 
-  const limit = lengths[route]
+  const limit = route === 'bypass' && state.choice === 'safe-return' ? Math.max(safeReturn, route === state.route ? state.distance : 0) : lengths[route]
   const next: DriveState = {
-    ...state, route, distance: Math.min(limit, Math.max(0, distance)), lane, steering,
+    ...state, route, distance: Math.min(limit, Math.max(0, distance)), lane: route !== state.route ? 0 : lane, steering,
     speed: distance < 0 || distance > limit ? 0 : speed,
   }
   if (blocked && route === 'ridge' && speed > 0 && vehicleBox(next).intersectsOBB(ROADBLOCK.collider)) {
@@ -105,6 +110,8 @@ export function stepDrive(state: DriveState, input: DriveInput, blocked: boolean
 
   const box = vehicleBox(next)
   for (const gate of DRIVE_GATES) {
+    if (gate.id === 'rockfall' && next.distance < start + landslideDistance) continue
+    if (gate.id === 'finish' && next.distance < lengths.bypass * .981) continue
     if (gate.route === next.route && !next.gates.includes(gate.id) && box.intersectsOBB(gate.collider)) {
       next.gates = [...next.gates, gate.id]
     }
@@ -114,84 +121,27 @@ export function stepDrive(state: DriveState, input: DriveInput, blocked: boolean
 }
 
 type Mission = {
-  number: number
   title: string
   cue: string
-  action?: DriveAction
-  label?: string
   focus?: Focus
 }
 
 export function driveMission(drive: DriveState, scenario: Scenario): Mission {
-  const has = (action: DriveAction) => drive.inspectedAt[action] !== undefined
-  if (!drive.gates.includes('rockfall')) return { number: 1, title: 'Identify the hazard', cue: 'Drive through the lookout checkpoint and watch the slope across the valley.' }
-  if (!has('station')) return {
-    number: 2, title: 'Inspect the sensor station', cue: drive.gates.includes('sensors') ? 'Inspect the live sensor inputs at NODE-01.' : 'Follow the road to the NODE-01 checkpoint.',
-    ...(drive.gates.includes('sensors') && { action: 'station', label: 'Inspect NODE-01', focus: 'NODE-01' }),
+  if (!drive.gates.includes('rockfall')) return { title: 'Drive the first 10 metres', cue: 'Accelerate toward the lookout. The landslide triggers automatically.', focus: 'rockfall' }
+  if (scenario.reopened) return { title: 'Primary road reopened', cue: 'Headquarters recorded an authorized reopening.' }
+  if (scenario.routeAt !== null) {
+    if (drive.route === 'ridge') return { title: 'U-turn ahead', cue: 'At the marked turnaround, hold left while accelerating or select a route on the phone.' }
+    if (drive.choice === 'safe-return' && drive.distance >= safeReturn - .02) return { title: 'Last accessible junction reached', cue: 'Park here or select the long detour to keep driving.' }
+    return { title: drive.choice === 'safe-return' ? 'Return to the junction' : 'Follow the long detour', cue: drive.gates.includes('safe-return') ? 'Continue through the west valley toward the destination.' : 'Retrace the ridge road to the last accessible junction.' }
   }
-  if (!has('monitor')) return {
-    number: 3, title: 'Monitor the LoRa module',
-    cue: scenario.packet?.step === 'ready' ? 'The ESP32-C3 has prepared a warning packet. Send it over the separate LoRa module.' : 'Watch the ESP32-C3 process the motion and vibration inputs.',
-    ...(scenario.packet?.step === 'ready' && { action: 'monitor', label: 'Transmit warning', focus: 'NODE-01' }),
-  }
-  if (!has('track')) return { number: 4, title: 'Track the packet', cue: 'Follow the two simulated LoRa hops through NODE-02.', action: 'track', label: 'Track PS-001', focus: 'packet' }
-  if (!has('gateway')) {
-    const received = scenario.packet?.step === 'at-GW-01' || scenario.packet?.step === 'processing' || scenario.packet?.step === 'processed'
-    return { number: 5, title: 'Inspect the gateway', cue: received ? 'GW-01 has the packet. Inspect the receiver and Tinker Board.' : 'Wait for NODE-02 to forward the warning to GW-01.',
-      ...(received && { action: 'gateway', label: 'Inspect GW-01', focus: 'GW-01' }),
-    }
-  }
-  if (!has('evidence')) return {
-    number: 6, title: 'Verify the hazard',
-    cue: scenario.correlated ? 'Compare the field warning and the witness report in Supabase.' : 'Wait for the sensor record and community report to reach Supabase.',
-    ...(scenario.correlated && { action: 'evidence', label: 'Compare evidence', focus: 'cloud' }),
-  }
-  if (!has('confirm')) return {
-    number: 6, title: 'Verify the hazard', cue: 'The evidence is corroborated. Confirm the simulated field closure.',
-    ...(scenario.verification === 'Corroborated' && { action: 'confirm', label: 'Confirm closure', focus: 'vehicle' }),
-  }
-  return { number: 7, title: 'Find an alternative route', cue: drive.route === 'bypass' ?
-    'Drive along the illustrative bypass to the exit checkpoint.' : 'Return to the SUV and hold left while accelerating at the junction.' }
+  if (scenario.sensorInCloud) return { title: 'Headquarters and app alerted', cue: 'The phone shows a preliminary sensor warning while operators assess the incident.', focus: 'cloud' }
+  if (scenario.packet) return { title: 'Warning in transit', cue: 'Track PS-001 from NODE-01 through the relay to the Tinker Board gateway.', focus: 'packet' }
+  return { title: 'Landslide ahead', cue: 'NODE-01 is sampling the movement. The warning is sent automatically.', focus: 'NODE-01' }
 }
 
-export function driveIncident(scenario: Scenario, drive: DriveState, at: number) {
-  let next = advanceScenario(scenario, at)
-  const run = (command: Command) => { next = applyCommand(next, command, at) }
-  const inspected = drive.inspectedAt
-  if (!drive.gates.includes('rockfall')) return next
-  if (next.rockAt === null) run('rockfall')
-  if (!drive.gates.includes('sensors')) return next
-
-  if (next.vibrationAt === null) run('vibration')
-  if (!next.motion && next.vibrationAt !== null && at >= next.vibrationAt + .65) run('motion')
-  if (next.motion && next.packet === null && inspected.station !== undefined && at >= inspected.station + 3) run('generate')
-  if (next.packet?.step === 'ready' && inspected.monitor !== undefined) run('send')
-  const packet = next.packet
-  if (packet?.step === 'sending-NODE-01' && at >= packet.at + FLIGHT) run('receiveRelay')
-  if (packet?.step === 'at-NODE-02' && at >= packet.at + 1.5) run('forward')
-  if (packet?.step === 'forwarding-NODE-02' && at >= packet.at + FLIGHT) run('receiveGateway')
-  if (packet?.step === 'at-GW-01' && inspected.gateway !== undefined) run('process')
-  if (packet?.step === 'processed') {
-    if (!next.validated) run('validate')
-    if (next.sync === 'idle') run('sync')
-  }
-  if (next.settled && next.report === 'none') {
-    run('draft')
-    run('submit')
-  }
-  if (next.sensorInCloud && next.report === 'submitted') {
-    if (next.verification === 'Reported') run('review')
-    if (!next.correlated) run('correlate')
-    if (next.verification === 'Under review' && inspected.evidence !== undefined) run('corroborate')
-    if (next.verification === 'Corroborated' && inspected.confirm !== undefined) {
-      run('confirm')
-      run('alert')
-    }
-  }
-  if (next.verification === 'Confirmed closure' && next.routeAt === null) run('planRoute')
-  if (drive.route === 'bypass' && next.turnAt === null) {
-    run('driveRoute')
-    if (next.turnAt !== null) next = { ...next, turnAt: at }
-  }
-  return next
+export function driveIncident(scenario: Scenario, drive: DriveState, from: number, at: number) {
+  const triggered = !scenario.reopened && scenario.rockAt === null && drive.gates.includes('rockfall')
+  const incident = triggered ? applyCommand(scenario, 'rockfall', at) : scenario
+  const next = applyResponse(incident, from, at)
+  return drive.route === 'bypass' && next.routeAt !== null && next.turnAt === null ? applyCommand(next, 'driveRoute', at) : next
 }

@@ -1,14 +1,16 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { Activity, BadgeCheck, CarFront, ClipboardList, Compass, Crosshair, House, MapPin, Maximize, Minimize, Mountain, Pause, Play, Radio, RotateCcw, SkipBack, Settings2, SkipForward, Volume2, VolumeX, Wifi, WifiOff } from 'lucide-react'
+import { Activity, ArrowUpRight, BadgeCheck, CarFront, ClipboardList, Compass, Crosshair, House, MapPin, Maximize, Minimize, Mountain, Pause, Play, Radio, RotateCcw, ShieldCheck, SkipBack, Settings2, SkipForward, Volume2, VolumeX, Wifi, WifiOff } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { updateDriveMusic } from '../audio/DriveMusic'
-import { unlockAudio, updateScore } from '../audio/Score'
+import { syncRockfallAudio, unlockAudio, updateScore } from '../audio/Score'
 import { regionalView, useGame, worldFocus, type Quality, type Session } from '../game/GameEngine'
 import { roadIsBlocked } from '../game/Scenario'
 import { CHAPTERS, CUES, DURATION, STAGES } from '../game/Timeline'
 import { focusLabels, FusionFlow, Inspection } from './Inspection'
 import { DrivingHud } from './DrivingHud'
 import { MiniMap } from './MiniMap'
+import { Headquarters } from './Operations'
+import { appHref, appScreen, SafetyApp } from './SafetyApp'
 import { EventLog, Presenter } from './Presenter'
 
 const timecode = (seconds: number) => String(Math.floor(seconds / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0')
@@ -18,6 +20,16 @@ function Control({ label, children, action, active, text = false, disabled = fal
 }) {
   return <button className={`control ${text ? 'control-text' : ''}`} type="button" onClick={action} aria-label={label}
     title={label} aria-pressed={active} disabled={disabled}>{children}{text && <span>{label}</span>}</button>
+}
+
+function AudioSettings() {
+  const volume = useGame((state) => state.volume)
+  return <div className="volume-settings">
+    {(['master', 'environment', 'events'] as const).map((channel) => <label key={channel}>{channel === 'events' ? 'Rockfall' : channel === 'master' ? 'Master' : 'Environment'}
+      <input type="range" min={0} max={1} step={.05} value={volume[channel]}
+        onChange={(event) => useGame.getState().setVolume(channel, Number(event.target.value))} />
+    </label>)}
+  </div>
 }
 
 function NetworkStatus() {
@@ -30,20 +42,20 @@ function NetworkStatus() {
   return <div className="network-status" aria-label="Network and hazard status">
     {!regional ? <div className="node-status" aria-label="LoRa network nodes">
       {(['NODE-01', 'NODE-02', 'GW-01'] as const).map((id) =>
-        <button key={id} type="button" title={id + ' · Online'} onClick={() => useGame.getState().inspect(id)} aria-label={'Focus node ' + id}>
-          <span className="status-light" />{id}<small>ONLINE</small>
+        <button key={id} type="button" onClick={() => useGame.getState().inspect(id)} aria-label={'Focus node ' + id}>
+          <span className="status-light" />{id}<small>{id === 'NODE-01' && !scenario.nodeOnline ? 'OFFLINE' : 'ONLINE'}</small>
         </button>)}
       <span className="rf-status"><Radio size={13} /> LoRa ACTIVE</span>
     </div> : <span className="rf-status"><Radio size={13} /> REAL-WORLD DEPLOYMENT · PROPOSED LoRa</span>}
     <div className="hazard-status">
       <span className={scenario.internet ? '' : 'warn'}><WifiIcon size={14} /> INTERNET {scenario.internet ? 'ONLINE' : 'OFFLINE'}</span>
       <span className={blocked || holding ? 'warn' : ''}>ROAD {scenario.verification === 'Confirmed closure' ? 'CLOSED' : blocked ? 'BLOCKED' : holding ? 'HOLD' : 'OPEN'}</span>
-      <span>HAZARD {scenario.rockAt !== null && !scenario.settled ? 'LANDSLIDE DETECTED' : scenario.verification === 'Normal' && blocked ? 'LANDSLIDE / BLOCKAGE' : scenario.verification.toUpperCase()}</span>
+      <span>HAZARD {!scenario.nodeOnline && scenario.verification === 'Normal' ? 'UNKNOWN' : scenario.rockAt !== null && !scenario.settled ? 'LANDSLIDE DETECTED' : scenario.verification === 'Normal' && blocked ? 'LANDSLIDE / BLOCKAGE' : scenario.verification.toUpperCase()}</span>
     </div>
   </div>
 }
 
-export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) {
+export function Hud({ ready, fallback, appPage }: { ready: boolean; fallback: boolean; appPage: ReturnType<typeof appScreen> }) {
   const mode = useGame((state) => state.mode)
   const control = useGame((state) => state.control)
   const stageIndex = useGame((state) => state.stage)
@@ -51,6 +63,8 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
   const run = useGame((state) => state.run)
   const sound = useGame((state) => state.sound)
   const speed = useGame((state) => state.speed)
+  const volume = useGame((state) => state.volume)
+  const focusVersion = useGame((state) => state.focusVersion)
   const quality = useGame((state) => state.quality)
   const focus = useGame(worldFocus)
   const cameraOverride = useGame((state) => state.cameraOverride)
@@ -60,6 +74,7 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
   const [presentationReady, setPresentationReady] = useState(false)
   const [settings, setSettings] = useState(false)
   const [showLog, setShowLog] = useState(false)
+  const [showHq, setShowHq] = useState(false)
   const [fullscreen, setFullscreen] = useState(Boolean(document.fullscreenElement))
   const [feedback, setFeedback] = useState('')
   const lastCue = useRef('')
@@ -81,14 +96,20 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
     const cue = run + '/' + stageIndex + '/' + complete
     updateScore(sound && control !== 'drive', mode, stage.chapter, cue !== lastCue.current && mode !== 'menu')
     lastCue.current = cue
-  }, [sound, mode, stageIndex, run, stage.chapter, complete, control])
+  }, [sound, mode, stageIndex, run, stage.chapter, complete, control, volume])
 
   useEffect(() => {
-    function syncMusic() { updateDriveMusic(sound && driveMode && mode === 'running' && !document.hidden) }
+    function syncMusic() { updateDriveMusic(sound && driveMode && mode === 'running' && !document.hidden, false, volume.master * volume.environment * .46) }
     syncMusic()
     document.addEventListener('visibilitychange', syncMusic)
     return () => document.removeEventListener('visibilitychange', syncMusic)
-  }, [sound, driveMode, mode])
+  }, [sound, driveMode, mode, volume])
+
+  useEffect(() => {
+    syncRockfallAudio()
+    document.addEventListener('visibilitychange', syncRockfallAudio)
+    return () => document.removeEventListener('visibilitychange', syncRockfallAudio)
+  }, [sound, mode, scenario.rockAt, run, speed, focusVersion, volume])
 
   useEffect(() => {
     const listener = () => setFullscreen(Boolean(document.fullscreenElement))
@@ -106,10 +127,11 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
 
   function start(session: Session) {
     if (!ready) return
-    if (session === 'drive') updateDriveMusic(sound, true)
-    else if (sound) unlockAudio()
+    if (sound) unlockAudio()
+    if (session === 'drive') updateDriveMusic(sound, true, volume.master * volume.environment * .46)
     setSettings(false)
     setShowLog(false)
+    setShowHq(false)
     setPresentationReady(false)
     useGame.getState().start(session)
     if (session === 'auto') requestAnimationFrame(() => pauseButton.current?.focus({ preventScroll: true }))
@@ -117,8 +139,8 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
 
   function soundToggle() {
     const state = useGame.getState()
-    if (driveMode) updateDriveMusic(!state.sound && state.mode === 'running')
-    else if (!state.sound) unlockAudio()
+    if (!state.sound) unlockAudio()
+    if (driveMode) updateDriveMusic(!state.sound && state.mode === 'running', false, volume.master * volume.environment * .46)
     state.toggleSound()
   }
 
@@ -132,6 +154,7 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
 
   useEffect(() => {
     function keyboard(event: KeyboardEvent) {
+      if (appPage) return
       if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return
       if (event.key === 'Escape' && settings) {
         setSettings(false)
@@ -146,7 +169,7 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
     }
     window.addEventListener('keydown', keyboard)
     return () => window.removeEventListener('keydown', keyboard)
-  }, [menu, complete, settings, driveMode])
+  }, [menu, complete, settings, driveMode, appPage])
 
   const Icon = sound ? Volume2 : VolumeX
   const FullIcon = fullscreen ? Minimize : Maximize
@@ -160,7 +183,7 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
   }
   const routeTitle = presenter && focus === 'vehicle' && scenario.routeAt !== null ?
     scenario.turnAt !== null ? 'Route updated — avoiding the rockfall zone' : 'Alternate route available' : title
-  return <div className={`hud ${menu ? 'hud-menu' : 'hud-active'} ${complete ? 'hud-complete' : ''} ${overview ? 'hud-overview' : ''} ${presenter ? 'hud-presenter' : ''} ${driveMode ? 'hud-driving' : ''} ${scenario.architecture === 'production' ? 'hud-production' : ''}`}>
+  return <><div inert={!!appPage} className={`hud ${appPage ? 'hud-hidden' : ''} ${menu ? 'hud-menu' : 'hud-active'} ${complete ? 'hud-complete' : ''} ${overview ? 'hud-overview' : ''} ${presenter ? 'hud-presenter' : ''} ${driveMode ? 'hud-driving' : ''} ${scenario.architecture === 'production' ? 'hud-production' : ''}`}>
     <div className="cinema-wash" />
     <header className="hud-header">
       <div className="brand-lockup">
@@ -176,7 +199,7 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
           <span>{fallback ? '2D FALLBACK' : menu ? 'DEMONSTRATION ENVIRONMENT' : complete ? 'MISSION COMPLETE' : status}</span>
         </div>
         {!menu && <>
-          <Control label="Main menu" action={() => { setPresentationReady(false); useGame.getState().menu() }}><House size={17} /></Control>
+          <Control label="Main menu" action={() => { setPresentationReady(false); setShowHq(false); setSettings(false); useGame.getState().menu() }}><House size={17} /></Control>
           {!complete && <button ref={pauseButton} className="control" type="button" title={mode === 'paused' ? 'Resume' : 'Pause'}
             aria-label={mode === 'paused' ? 'Resume' : 'Pause'} onClick={useGame.getState().togglePause}>
             {mode === 'paused' ? <Play size={17} /> : <Pause size={17} />}
@@ -184,6 +207,8 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
           {!complete && <Control label={presenter ? 'Restart Entire Simulation' : 'Restart'} action={() => start(control)}><RotateCcw size={17} /></Control>}
           {complete && <Control label="Event log" active={showLog} action={() => setShowLog(!showLog)}><ClipboardList size={17} /></Control>}
           <Control label={sound ? 'Sound on' : 'Sound off'} action={soundToggle} active={sound}><Icon size={17} /></Control>
+          {!complete && <Control label="Headquarters" action={() => setShowHq(!showHq)} active={showHq}><ShieldCheck size={17} /></Control>}
+          <Control label="Audio settings" action={() => setSettings(!settings)} active={settings}><Settings2 size={17} /></Control>
         </>}
         <Control label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} action={() => void full()}><FullIcon size={17} /></Control>
       </div>
@@ -196,7 +221,7 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
         <h1><span>PAHAAD</span><span>SAATHI</span></h1>
         <p className="menu-subtitle">Mountain Safety Simulation</p>
         {presentationReady ? <>
-          <p className="menu-description">Watch the continuous 3D demonstration, from the distant landslide through LoRa detection, verification, and rerouting.</p>
+          <p className="menu-description">Watch the SUV trigger a distant landslide, then follow the sensor warning to headquarters, the phone, and the long detour.</p>
           <div className="menu-entry">
             <button className="start-button" type="button" disabled={!ready} onClick={() => start('auto')}>
               <Play size={17} fill="currentColor" /> START PRESENTATION
@@ -215,6 +240,7 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
       </main>
       <div className="menu-bottom">
         <div className="menu-controls">
+          <a href={appHref()} className="control control-text safety-launch">Open PahaadSaathi app <ArrowUpRight size={15} /></a>
           <Control label={sound ? 'Sound on' : 'Sound off'} action={soundToggle} active={sound} text><Icon size={16} /></Control>
           <button ref={settingsButton} className="control control-text" type="button" aria-label="Settings" aria-expanded={settings} aria-controls="quality-panel"
             onClick={() => setSettings(!settings)}><Settings2 size={16} /><span>Settings</span></button>
@@ -223,6 +249,7 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
           <span className="eyebrow">GRAPHICS QUALITY</span>
           <div className="quality-options">{(['Low', 'Medium', 'High'] as Quality[]).map((option) => <button type="button" key={option}
             aria-pressed={quality === option} onClick={() => useGame.getState().setQuality(option)}>{option}</button>)}</div>
+          <AudioSettings />
         </div>}
       </div>
     </> : complete ? <main className="ending">
@@ -238,6 +265,7 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
           setSettings(false)
           setPresentationReady(true)
         }}><Compass size={17} /> {driveMode ? 'PRESENTATION MODE' : 'GAME MODE'}</button>
+        <a className="control control-text safety-launch" href={appHref('alerts')}>Open PahaadSaathi app <ArrowUpRight size={15} /></a>
       </div>
     </main> : driveMode ? <>
       <DrivingHud />
@@ -278,7 +306,7 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
             }}>
               <option value="">Cinematic camera</option><option value="rockfall">Landslide face</option><option value="NODE-01">NODE-01</option>
               <option value="NODE-02">NODE-02</option><option value="GW-01">GW-01</option><option value="packet">LoRa packet</option>
-              <option value="production">Regional deployment</option><option value="vehicle">SUV</option>
+              <option value="production">Regional deployment</option><option value="vehicle">SUV</option><option value="route">Aerial detour</option>
             </select>
           </label>
           <Control label="Previous event" disabled={stageIndex === 0} action={() => useGame.getState().chapter(-1)}><SkipBack size={15} /></Control>
@@ -290,11 +318,18 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
       <div className="simulated-tag"><span className="status-light" /> SIMULATION MODE — EVENTS ARE VIRTUALLY GENERATED</div>
     </>}
     {showLog && !presenter && !menu && <aside className="auto-log"><EventLog entries={scenario.log} /></aside>}
-    {!complete && !presenter && (!driveMode || focus === 'vehicle') && <MiniMap />}
+    {menu && <MiniMap />}
+    {!menu && !complete && !presenter && <SafetyApp key={run} />}
+    {!menu && !complete && showHq && <Headquarters onClose={() => setShowHq(false)} />}
+    {!menu && settings && <div className="active-settings settings-panel"><AudioSettings /></div>}
     {mode === 'paused' && !presenter && <div className="paused-layer"><div><span className="eyebrow">MISSION PAUSED</span>
       <button type="button" className="start-button" onClick={useGame.getState().togglePause}><Play size={17} fill="currentColor" /> {driveMode ? 'RESUME DRIVE' : 'RESUME PRESENTATION'}</button>
     </div></div>}
     {feedback && <div className="control-feedback" role="status">{feedback}</div>}
     {fallback && !complete && <div className="fallback-note"><MapPin size={14} /> Map view</div>}
   </div>
+    {appPage && <SafetyApp key={run} full={{ screen: appPage, ready, startDrive: () => {
+      if (ready) { start('drive'); window.location.hash = 'simulation' }
+    } }} />}
+  </>
 }

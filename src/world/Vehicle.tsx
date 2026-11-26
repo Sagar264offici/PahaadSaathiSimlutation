@@ -4,6 +4,7 @@ import { Suspense, useMemo, useRef } from 'react'
 import { Group, Mesh, Vector3 } from 'three'
 import { driveHeading, drivePosition } from '../game/Drive'
 import { clock, driving, useGame } from '../game/GameEngine'
+import { CUES } from '../game/Timeline'
 import { junctionU, mainRoad, vehicleAt } from './layout'
 
 const suvURL = '/models/suv.glb'
@@ -75,7 +76,7 @@ function BrakeLights() {
     const { mode, scenario, control } = useGame.getState()
     if (lights.current) lights.current.visible = mode !== 'menu' && (control === 'drive'
       ? driving.frame.speed < .65 && driving.frame.gates.includes('junction') && driving.frame.route === 'ridge'
-      : (scenario.rockAt !== null || scenario.barrier) && clock.time >= 31 && scenario.turnAt === null)
+      : (scenario.rockAt !== null || scenario.barrier) && clock.time >= CUES.turn - 1.5 && scenario.turnAt === null)
   })
   return <group ref={lights} visible={false}>
     {[-.96, .96].map((x) => <mesh key={x} position={[x, .73, -1.955]}>

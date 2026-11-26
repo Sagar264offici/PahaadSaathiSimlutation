@@ -15,6 +15,7 @@ import { Forest } from './Forest'
 import { Roads, ValleyStructures } from './Infrastructure'
 import { Terrain } from './Terrain'
 import { Vehicle } from './Vehicle'
+import { SceneCapture } from './SceneCapture'
 
 const settings = {
   High: { dpr: [1, 1.8] as [number, number], shadows: true, antialias: true },
@@ -49,6 +50,7 @@ export default function World({ onReady, onFallback }: { onReady: () => void; on
   >
     <Suspense fallback={null}><Ready onReady={onReady} onFallback={onFallback} /></Suspense>
     <Director />
+    <SceneCapture />
     <Atmosphere shadows={config.shadows} />
     <Terrain quality={quality} />
     <Roads />

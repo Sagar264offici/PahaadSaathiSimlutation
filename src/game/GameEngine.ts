@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { driveIncident, driveMission, newDrive, stepDrive, type DriveState } from './Drive'
+import { driveIncident, driveMission, newDrive, stepDrive, type DriveState, type RouteChoice } from './Drive'
 import { clearDriveInput, readDriveInput } from './DrivingInput'
 import { advanceScenario, applyCommand, initialScenario, type Command, type Focus, type ReportCategory, type Scenario } from './Scenario'
 import { applyTimeline, CHAPTERS, cueIndex, CUES, DURATION, scenarioAt, STAGES } from './Timeline'
@@ -7,6 +7,12 @@ import { applyTimeline, CHAPTERS, cueIndex, CUES, DURATION, scenarioAt, STAGES }
 export type Quality = 'High' | 'Medium' | 'Low'
 export type Session = 'drive' | 'auto' | 'presenter'
 type Mode = 'menu' | 'running' | 'paused' | 'complete'
+type Role = 'operator' | 'moderator'
+export type AudioChannel = 'master' | 'environment' | 'events'
+type Capture = { image: string; hash: string; at: number }
+export type HqAction = 'acknowledge' | 'review' | 'fieldCheck' | 'correlate' | 'corroborate' | 'confirmHazard' | 'confirm' |
+  'requestEvidence' | 'reject' | 'rejectReport' | 'resolve' | 'reopen' | 'nodeOutage' | 'nodeRestore'
+const operatorActions: readonly HqAction[] = ['acknowledge', 'nodeOutage', 'nodeRestore']
 
 const device = typeof navigator === 'undefined' ? undefined : navigator as Navigator & { deviceMemory?: number }
 const defaultQuality: Quality = (typeof matchMedia !== 'undefined' && matchMedia('(max-width: 650px)').matches) || (device?.deviceMemory ?? 8) < 6 ? 'Low' : 'Medium'
@@ -29,22 +35,31 @@ type Game = {
   run: number
   speed: number
   sound: boolean
+  volume: Record<AudioChannel, number>
   quality: Quality
   drive: DriveState
   scenario: Scenario
   focus: Focus
   focusVersion: number
   cameraOverride: Focus | null
+  role: Role
+  capture: Capture | null
   start: (control?: Session) => void
   menu: () => void
   togglePause: () => void
   toggleSound: () => void
+  setVolume: (channel: AudioChannel, volume: number) => void
   setQuality: (quality: Quality) => void
   setSpeed: (speed: number) => void
   command: (action: Command, focus?: Focus) => void
   inspect: (focus: Focus) => void
   setCameraOverride: (focus: Focus | null) => void
   interact: () => void
+  chooseRoute: (route: RouteChoice) => void
+  setRole: (role: Role) => void
+  operate: (action: HqAction) => void
+  recordCapture: (capture: Capture) => void
+  submitCapture: () => void
   editReport: (changes: { reportCategory?: ReportCategory; reportDescription?: string }) => void
   seek: (time: number) => void
   chapter: (direction: number) => void
@@ -61,8 +76,10 @@ export function regionalView(game: Game) {
 export const useGame = create<Game>((set, get) => ({
   mode: 'menu', control: 'auto', stage: 0, second: 0, run: 0, speed: 1,
   sound: settings.sound !== false,
+  volume: { master: 1, environment: .75, events: .9, ...settings.volume },
   quality: ['High', 'Medium', 'Low'].includes(settings.quality) ? settings.quality : defaultQuality,
   drive: driving.frame, scenario: initialScenario(), focus: 'world', focusVersion: 0, cameraOverride: null,
+  role: 'operator', capture: null,
   start(control = 'drive') {
     clock.time = control === 'presenter' ? CUES.approach : 0
     const game = get()
@@ -71,10 +88,10 @@ export const useGame = create<Game>((set, get) => ({
     telemetryTick = -1
     set({
       mode: 'running', control, stage: 0, second: Math.floor(clock.time),
-      run: game.run + 1, cameraOverride: null, drive: driving.frame, scenario: initialScenario(), focus: control === 'drive' ? 'vehicle' : 'world', focusVersion: game.focusVersion + 1,
+      run: game.run + 1, cameraOverride: null, role: 'operator', capture: null, drive: driving.frame, scenario: initialScenario(), focus: control === 'drive' ? 'vehicle' : 'world', focusVersion: game.focusVersion + 1,
     })
   },
-  menu() { clearDriveInput(); clock.time = 0; set({ mode: 'menu', stage: 0, second: 0, scenario: initialScenario(), focus: 'world', cameraOverride: null }) },
+  menu() { clearDriveInput(); clock.time = 0; set({ mode: 'menu', stage: 0, second: 0, scenario: initialScenario(), focus: 'world', cameraOverride: null, capture: null }) },
   togglePause() {
     const { mode } = get()
     if (mode === 'running' || mode === 'paused') {
@@ -83,6 +100,7 @@ export const useGame = create<Game>((set, get) => ({
     }
   },
   toggleSound() { set({ sound: !get().sound }) },
+  setVolume(channel, value) { set({ volume: { ...get().volume, [channel]: Math.max(0, Math.min(1, value)) } }) },
   setQuality(quality) { set({ quality }) },
   setSpeed(speed) { set({ speed }) },
   command(action, focus) {
@@ -111,16 +129,40 @@ export const useGame = create<Game>((set, get) => ({
   interact() {
     const game = get()
     if (game.control !== 'drive' || game.mode !== 'running') return
-    const { action, focus } = driveMission(driving.frame, game.scenario)
-    if (!action || !focus) return
+    const { focus } = driveMission(driving.frame, game.scenario)
+    game.inspect(game.focus === 'vehicle' ? focus ?? 'world' : 'vehicle')
+  },
+  chooseRoute(choice) {
+    const game = get()
+    if (game.control !== 'drive' || game.mode !== 'running' || game.scenario.routeAt === null) return
     clearDriveInput()
-    driving.frame = { ...driving.frame, inspectedAt: { ...driving.frame.inspectedAt, [action]: clock.time } }
-    const scenario = driveIncident(game.scenario, driving.frame, clock.time)
-    set({ drive: driving.frame, focus, focusVersion: game.focusVersion + 1, scenario })
+    driving.frame = { ...driving.frame, choice }
+    set({ drive: driving.frame, focus: 'vehicle', focusVersion: game.focusVersion + 1 })
+  },
+  setRole(role) { set({ role }) },
+  operate(action) {
+    const game = get()
+    if (game.mode === 'menu' || (game.role !== 'moderator' && !operatorActions.includes(action))) return
+    const at = clock.time
+    let scenario = applyCommand(advanceScenario(game.scenario, at), action, at)
+    if (action === 'confirm' && scenario.verification === 'Confirmed closure' && !scenario.alert) {
+      scenario = applyCommand(scenario, 'alert', at)
+    }
+    set({ scenario })
+  },
+  recordCapture(capture) {
+    const game = get()
+    if (game.control !== 'drive' || game.mode !== 'running' || game.scenario.report === 'submitted' || game.scenario.report === 'sending') return
+    set({ capture, scenario: { ...applyCommand(game.scenario, 'draft', clock.time), observedAt: capture.at } })
+  },
+  submitCapture() {
+    const game = get()
+    if (!game.capture || game.control !== 'drive' || game.mode !== 'running') return
+    set({ scenario: applyCommand(game.scenario, 'submit', clock.time) })
   },
   editReport(changes) {
     const game = get()
-    if (game.control === 'presenter' && game.scenario.report === 'draft') {
+    if (game.scenario.report === 'draft') {
       set({ scenario: { ...game.scenario, ...changes } })
     }
   },
@@ -148,28 +190,29 @@ export const useGame = create<Game>((set, get) => ({
 }))
 
 useGame.subscribe((state, previous) => {
-  if (state.sound === previous.sound && state.quality === previous.quality) return
-  try { localStorage.setItem('pahaadsaathi-settings', JSON.stringify({ sound: state.sound, quality: state.quality })) }
+  if (state.sound === previous.sound && state.quality === previous.quality && state.volume === previous.volume) return
+  try { localStorage.setItem('pahaadsaathi-settings', JSON.stringify({ sound: state.sound, quality: state.quality, volume: state.volume })) }
   catch { /* The settings remain available in this session. */ }
 })
 
-export function advance(delta: number) {
+export function advance(delta: number, appOpen = false) {
   const game = useGame.getState()
   if (game.mode === 'menu') clock.idle += delta
   if (game.mode !== 'running') return
   if (game.control === 'drive') {
     let remaining = Math.min(delta, .15)
     let scenario = game.scenario
-    const input = game.focus === 'vehicle' ? readDriveInput() : { throttle: 0, steer: 0, brake: true }
+    const input = game.focus === 'vehicle' && !appOpen ? readDriveInput() : { throttle: 0, steer: 0, brake: true }
     while (remaining > .00001) {
       const step = Math.min(remaining, 1 / 60)
+      const from = clock.time
       clock.time += step
       driving.frame = stepDrive(driving.frame, input, scenario.rockAt !== null, scenario.routeAt !== null, step)
-      scenario = driveIncident(scenario, driving.frame, clock.time)
+      scenario = driveIncident(scenario, driving.frame, from, clock.time)
       remaining -= step
     }
     const tick = Math.floor(clock.time * 12)
-    const finish = driving.frame.gates.includes('finish') && scenario.verification === 'Confirmed closure'
+    const finish = driving.frame.gates.includes('finish')
     if (finish || tick !== telemetryTick || scenario !== game.scenario || driving.frame.gates !== game.drive.gates) {
       telemetryTick = tick
       useGame.setState({ mode: finish ? 'complete' : 'running', second: Math.floor(clock.time), drive: driving.frame, scenario })

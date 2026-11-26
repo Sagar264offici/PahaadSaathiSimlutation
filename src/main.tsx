@@ -5,9 +5,10 @@ import '@fontsource/ibm-plex-mono/latin-500.css'
 import { Component, Suspense, lazy, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { drivePosition } from './game/Drive'
-import { bindDriveInput } from './game/DrivingInput'
+import { bindDriveInput, clearDriveInput } from './game/DrivingInput'
 import { advance, useGame } from './game/GameEngine'
 import { Hud } from './hud/Hud'
+import { appScreen } from './hud/SafetyApp'
 import { roadIsBlocked } from './game/Scenario'
 import { closurePoint, vehicleAt } from './world/layout'
 import { bypassSvg, closureSvg, contourSvg, mapPoint, riverSvg, roadSvg } from './world/map'
@@ -56,15 +57,16 @@ function MapBackdrop() {
 function App() {
   const [fallback, setFallback] = useState(() => !canRenderWorld())
   const [loaded, setLoaded] = useState(false)
+  const [appPage, setAppPage] = useState(() => appScreen(window.location.hash))
   const onReady = useCallback(() => setLoaded(true), [])
   const onFallback = useCallback(() => setFallback(true), [])
   useEffect(() => {
     const stop = bindDriveInput(() => {
       const game = useGame.getState()
-      return game.control === 'drive' && game.mode === 'running' && game.focus === 'vehicle'
+      return !appScreen(window.location.hash) && game.control === 'drive' && game.mode === 'running' && game.focus === 'vehicle'
     })
     function shortcuts(event: KeyboardEvent) {
-      if (event.repeat || event.metaKey || event.ctrlKey || event.altKey ||
+      if (appScreen(window.location.hash) || event.repeat || event.metaKey || event.ctrlKey || event.altKey ||
         (event.target as HTMLElement | null)?.closest('textarea, input, select, [contenteditable]')) return
       const game = useGame.getState()
       if (game.control !== 'drive' || game.mode !== 'running') return
@@ -75,10 +77,18 @@ function App() {
     return () => { stop(); window.removeEventListener('keydown', shortcuts) }
   }, [])
   useEffect(() => {
+    function changePage() {
+      clearDriveInput()
+      setAppPage(appScreen(window.location.hash))
+    }
+    window.addEventListener('hashchange', changePage)
+    return () => window.removeEventListener('hashchange', changePage)
+  }, [])
+  useEffect(() => {
     let id = 0
     let previous = performance.now()
     function frame(now: number) {
-      if (!document.hidden) advance((now - previous) / 1000)
+      if (!document.hidden) advance((now - previous) / 1000, !!appScreen(window.location.hash))
       previous = now
       id = requestAnimationFrame(frame)
     }
@@ -91,7 +101,7 @@ function App() {
     {fallback ? <MapBackdrop /> : <WorldBoundary fallback={onFallback}>
       <Suspense fallback={<MapBackdrop />}><World onReady={onReady} onFallback={onFallback} /></Suspense>
     </WorldBoundary>}
-    <Hud ready={loaded || fallback} fallback={fallback} />
+    <Hud ready={loaded || fallback} fallback={fallback} appPage={appPage} />
   </div>
 }
 

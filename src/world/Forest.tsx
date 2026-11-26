@@ -4,7 +4,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { Suspense } from 'react'
 import { useGLTF } from '@react-three/drei'
 import { randomSeed, shade } from './geometry'
-import { elevationAt, gateway, lodges, nearestRoad, node, relay, riverX, slope, witness } from './layout'
+import { elevationAt, footbridge, gateway, lodges, nearestRoad, node, relay, riverX, slope, witness } from './layout'
 import type { Quality } from '../game/GameEngine'
 
 type Stamp = { x: number; y: number; z: number; size: number; angle: number; color: number; tall: boolean }
@@ -47,9 +47,10 @@ function forestLayout(quality: Quality) {
     const tall = rand() < .60
     if (rand() > density || Math.abs(x - riverX(z)) < 9) continue
     const near = nearestRoad(x, z)
-    if (near.distance < 6.35 || Math.hypot(x - gateway.x, z - gateway.z) < 9 ||
+    if (near.distance < 6.65 + scale * .60 || Math.hypot(x - gateway.x, z - gateway.z) < 9 ||
       Math.hypot(x - node.x, z - node.z) < 8 || Math.hypot(x - relay.x, z - relay.z) < 6.5 || Math.hypot(x - witness.x, z - witness.z) < 5 || Math.hypot(x - slope.x, z - slope.z) < 15 ||
-      lodges.some(([hx, hz, scale]) => Math.hypot(x - hx, z - hz) < 3.65 * scale + 1.1)) continue
+      Math.abs(z - footbridge.z) < 3.2 && Math.abs(x - footbridge.x) < 17 ||
+      lodges.some(({ position, radius }) => Math.hypot(x - position.x, z - position.z) < radius + scale * .7 + .7)) continue
     const y = elevationAt(x, z, near)
     trees.push({ x, y: y - .25, z, size: scale, angle, color, tall })
   }
@@ -57,8 +58,14 @@ function forestLayout(quality: Quality) {
     const x = -151 + rand() * 269
     const z = -170 + rand() * 304
     const near = nearestRoad(x, z)
-    if (near.distance < 4.75 || Math.hypot(x - node.x, z - node.z) < 6 || Math.hypot(x - gateway.x, z - gateway.z) < 7) continue
-    stones.push({ x, y: elevationAt(x, z, near), z, size: .38 + rand() ** 3 * 3.15, angle: rand() * 7, color: rand(), tall: i % 5 === 0 })
+    const size = .38 + rand() ** 3 * 3.15
+    const angle = rand() * 7
+    const color = rand()
+    if (near.distance < 4.7 + size || Math.hypot(x - node.x, z - node.z) < 6 ||
+      Math.hypot(x - relay.x, z - relay.z) < 5.5 || Math.hypot(x - gateway.x, z - gateway.z) < 7 ||
+      lodges.some(({ position, radius }) => Math.hypot(x - position.x, z - position.z) < radius + size) ||
+      Math.abs(z - footbridge.z) < 2.7 && Math.abs(x - footbridge.x) < 15) continue
+    stones.push({ x, y: elevationAt(x, z, near) - size * .18, z, size, angle, color, tall: i % 5 === 0 })
   }
   return { pines: trees.filter((tree) => tree.tall), deodars: trees.filter((tree) => !tree.tall), trees, stones }
 }

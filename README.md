@@ -1,11 +1,15 @@
 # PahaadSaathi
 
-PahaadSaathi is a browser-based mountain safety simulation set in a continuous 3D Himalayan valley.
+PahaadSaathi is a mountain safety simulation set in a continuous 3D Himalayan valley.
 
-- **Presentation Mode** opens the Start Presentation screen. The cinematic tour shows the distant landslide, the field station detecting movement, two LoRa hops, gateway validation, community evidence, the closure, the bypass, and regional deployment. Pause, restart, replay an event, step between events, or choose a camera focus from the HUD.
-- **Game Mode** lets you drive the SUV through 3D checkpoints. Observe the distant slide, inspect NODE-01, transmit and follow PS-001 through NODE-02, inspect GW-01, compare the two sources of evidence, and confirm the closure before taking the bypass.
+- **Presentation Mode** runs an 86-second exercise. The SUV travels 10 metres and triggers a distant landslide. The sensor warning reaches headquarters and the phone after about seven seconds. Around ten seconds after the slide, the app shows a turnaround, the last accessible junction, and a long detour through the west valley.
+- **Game Mode** uses the same incident sequence. Drive the SUV to trigger the event. Choose **Return to safe location** or **Select long detour** in Routes, then accelerate at the turnaround. The first option parks at the return junction. Select the long detour to continue to the destination.
 
-## Game controls
+## PahaadSaathi app
+
+Choose **Open PahaadSaathi app** from the simulation menu or open `/#app/home`. The standalone view and in-simulation panel share the current exercise. **Home** summarizes road status, **Alerts** explains the source and status of each warning, and **Routes** shows the road network and available detours. **Community** shows witness evidence and opens the camera reporting form. **Help** links to **Headquarters** for moderation, telemetry, and incident history.
+
+## Controls
 
 | Input | Accelerate | Reverse | Steer | Brake |
 | --- | --- | --- | --- | --- |
@@ -13,13 +17,17 @@ PahaadSaathi is a browser-based mountain safety simulation set in a continuous 3
 | Gamepad | RT or A | LT | Left stick or D-pad | X |
 | Touch | Up pedal | Down pedal | Left/right pedals | Center brake |
 
-Press **E** or use the highlighted action to advance an inspection. Press **C** to enter orbit view or return to the SUV. Drag to orbit, right-drag to pan, and scroll or pinch to zoom. Escape pauses or resumes Game Mode. The supplied soundtrack loops during driving and follows the sound toggle.
+Press **E** to inspect the current event. Press **C** to enter orbit view or return to the SUV. Drag to orbit and scroll or pinch to zoom. Use the shield button to open headquarters. The audio settings provide independent master, environment, and rockfall levels.
 
-## Simulated architecture
+## Incident flow
 
-At NODE-01, the ESP32-C3 SuperMini receives a digital SW-420 trigger and MPU6050 acceleration and angular-velocity observations. The soil probe and bimetallic switch represent independent context signals. A separate LoRa module transmits the warning. NODE-02 uses a custom forwarding protocol to relay it to GW-01, whose ASUS Tinker Board validates and synchronizes the packet. A simulated field check combines the warning with a community report before confirming the closure.
+NODE-01 uses simulated SW-420 and MPU6050 readings. An ESP32-C3 sends the event over a separate LoRa module. NODE-02 relays it to the Tinker Board gateway at GW-01 using a custom forwarding protocol. Simulated Supabase synchronization publishes the preliminary sensor warning to the app and headquarters without waiting for witness evidence.
 
-All sensor readings, radio activity, synchronization, moderation, GPS and routing are simulated. Packet timing is paced for the demonstration. Regional placement illustrates the proposed architecture, with field coverage subject to a site survey. The bypass is illustrative.
+The headquarters operator acknowledges receipt. A separate moderator role verifies evidence and records hazard confirmation, closure, resolution, or reopening. The audit records simulated actor identities and timestamps. The Game Mode phone has a separate camera-only reporting flow that captures the current 3D scene and hashes the image. Presentation Mode demonstrates a scripted witness separately from the sensor warning.
+
+## Simulation boundaries
+
+The exercise uses simulated radio, cloud synchronization, positions, roles, and evidence assessment. The camera captures the rendered scene and uses simulated GPS. The 64 km regional detour is compressed into the modeled terrain and does not represent road safety certification. Node outage is displayed as unavailable telemetry. Offline cloud writes are held in a session-local queue.
 
 ## Run and verify
 
@@ -31,10 +39,4 @@ npm run build
 npm run preview
 ```
 
-Graphics settings include Low, Medium, and High. Browsers without WebGL 2 keep the simulation and game controls in a 2D route map.
-
-## Vercel
-
-The existing Vite configuration builds to `dist`. The application needs no environment variables, backend services, or external asset URLs. The previous driving release is commit `b5ef93f`.
-
-See [asset credits](ASSETS.md) for third-party licenses and hardware references.
+The existing Vite configuration builds to `dist`. WebGL 2 provides the 3D scene and scene camera. A 2D route map remains available without WebGL 2. See [asset credits](ASSETS.md).
