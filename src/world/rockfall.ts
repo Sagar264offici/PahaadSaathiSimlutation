@@ -5,7 +5,7 @@ import { phase } from '../game/Timeline'
 
 const random = randomSeed(20747)
 const keyframesPerSecond = 24
-export const ROCK_COUNT = 57
+export const ROCK_COUNT = 73
 const palette = ['#817565', '#a49072', '#9a8a78', '#706c61', '#b2a18b', '#837d6d']
 
 export type Fragment = {
@@ -19,6 +19,7 @@ export type Fragment = {
   turn: number
   color: string
   ground: Float32Array
+  slab: boolean
 }
 
 function onRoad(u: number, offset: number) {
@@ -37,15 +38,22 @@ const stranded = [
 
 export const fragments: Fragment[] = Array.from({ length: ROCK_COUNT }, (_, index) => {
   const large = index >= 9 && index < 9 + stranded.length
-  const [u, spread, size] = large ? stranded[index - 9] : [
+  const scree = index >= 57
+  const [u, spread, baseSize] = large ? stranded[index - 9] : [
     .606 + random() * .038, (random() - .5) * 6.75,
     index < 9 ? .09 + random() * .14 : .22 + random() ** 2 * .58,
   ]
-  const startX = 39.3 + random() * 7.2
-  const startZ = -58.9 + (random() - .5) * 9.4
+  const size = scree ? .78 + random() * 1.18 : large ? baseSize * 1.21 : baseSize
+  const startX = (scree ? 36.75 : 39.3) + random() * (scree ? 14 : 8.2)
+  const startZ = -59.8 + (random() - .5) * (scree ? 18 : 10.6)
   const start = new Vector3(startX, elevationAt(startX, startZ) + size * .63, startZ)
   const impact = onRoad(.589 + random() * .023, 2.5 + random() * .7)
   const end = onRoad(u, spread)
+  if (scree) {
+    impact.lerp(start, .20 + random() * .36)
+    end.lerp(start, .30 + random() * .30)
+    end.y = elevationAt(end.x, end.z)
+  }
   const fall = (large ? 2.35 : 1.7) + random() * 1.38
   const bounce = 1.12 + random() * 1.5
   const delay = index < 9 ? .48 + index * .19 : large ? 2.35 + (index - 9) * .21 : 2.6 + random() * 3.3
@@ -61,7 +69,7 @@ export const fragments: Fragment[] = Array.from({ length: ROCK_COUNT }, (_, inde
     const surface = elevationAt(probe.x, probe.z) + .27
     ground[tick] = surface
   }
-  return { start, impact, end, delay, fall, bounce, size, turn: (index % 2 ? -1 : 1) * (3.8 + random() * 5.2), color: palette[index % palette.length], ground }
+  return { start, impact, end, delay, fall, bounce, size, slab: scree || large, turn: (index % 2 ? -1 : 1) * (3.8 + random() * 5.2), color: palette[index % palette.length], ground }
 })
 
 export function fragmentPose(rock: Fragment, age: number, position: Vector3) {

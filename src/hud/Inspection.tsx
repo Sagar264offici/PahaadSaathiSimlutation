@@ -7,11 +7,11 @@ export const focusLabels: Record<Focus, [title: string, description: string]> = 
   world: ['Ridge sector overview', 'Inspect the mountain road, three prototype nodes, and the nearby settlement.'],
   vehicle: ['Survey vehicle', 'The SUV follows the ridge road and waits at the bypass junction when the primary route is blocked.'],
   rockfall: ['Exposed road cut', 'A failure on this slope can send debris onto both lanes below.'],
-  '1E': ['1E — Sensor / relay node', 'Arduino UNO R3 reads the SW-420 module and the GY-521 / MPU-6050. Its HC-12 sends and relays wireless serial traffic.'],
-  '2L': ['2L — Sensor / relay node', 'Arduino UNO R3, SW-420, GY-521 / MPU-6050, and HC-12. Here, the node checks packet structure before custom firmware forwards it.'],
-  '3MH': ['3MH — Main headquarters', 'An HC-12 endpoint passes packets to the original ASUS Tinker Board through UART.'],
-  packet: ['HC-12 packet in flight', 'The prototype uses two scripted hops with custom firmware behavior and a decrementing TTL.'],
-  cloud: ['Supabase and hazard verification', 'The backend associates the 1E observation and the community report. A human moderator reviews the evidence.'],
+  'NODE-01': ['NODE-01 — Slope monitoring station', 'The ESP32-C3 SuperMini processes the SW-420 and MPU6050 inputs, then hands the warning to a separate LoRa transceiver.'],
+  'NODE-02': ['NODE-02 — LoRa relay', 'The relay receives the LoRa packet, checks its structure, and forwards it using the simulated routing protocol.'],
+  'GW-01': ['GW-01 — Main headquarters', 'The LoRa receiver passes packets to the ASUS Tinker Board for validation and forwarding to Supabase.'],
+  packet: ['Simulated LoRa packet', 'The prototype uses two scripted hops with custom firmware behavior and a decrementing TTL.'],
+  cloud: ['Supabase and hazard verification', 'The backend associates the NODE-01 observation and the community report. A human moderator reviews the evidence.'],
   community: ['Ridge Hamlet community report', 'A witness uses PahaadSaathi to report the blocked road from the settlement.'],
   production: ['Real-world deployment', 'Proposed Himalayan regional coverage combines targeted sensing and community reporting.'],
 }
@@ -25,18 +25,20 @@ function PacketInspector({ scenario, now }: { scenario: Scenario; now: number })
   if (!packet) return null
   const step = {
     ready: 'READY TO TRANSMIT',
-    'sending-1E': now >= packet.at + FLIGHT ? 'AT 2L · AWAITING RECEPTION' : 'TRANSMITTING',
-    'at-2L': 'RECEIVED · STRUCTURE VALIDATED',
-    'forwarding-2L': now >= packet.at + FLIGHT ? 'AT 3MH · AWAITING RECEPTION' : 'FORWARDED',
-    'at-3MH': 'PACKET RECEIVED AT 3MH',
+    'sending-NODE-01': now >= packet.at + FLIGHT ? 'AT NODE-02 · AWAITING RECEPTION' : 'TRANSMITTING',
+    'at-NODE-02': 'RECEIVED · STRUCTURE VALIDATED',
+    'forwarding-NODE-02': now >= packet.at + FLIGHT ? 'AT GW-01 · AWAITING RECEPTION' : 'FORWARDED',
+    'at-GW-01': 'PACKET RECEIVED AT GW-01',
     processing: 'GATEWAY PROCESSING',
     processed: 'GATEWAY PROCESSING COMPLETE',
   }[packet.step]
   return <details className="packet-inspector" open>
-    <summary><Radio size={14} /> Packet inspector <span>SIMULATED HC-12</span></summary>
+    <summary><Radio size={14} /> Packet inspector <span>SIMULATED LoRa</span></summary>
     <Facts data={[
-      ['Packet type', packet.type], ['Origin / Sender', packet.origin + ' / ' + packet.sender],
-      ['Sequence ID', packet.sequence], ['Hop count / TTL', packet.hop + ' / ' + packet.ttl], ['Status', step],
+      ['Network', 'LoRa'], ['Packet ID', packet.sequence], ['Origin', packet.origin],
+      ...(packet.hop ? [['Forwarder', packet.sender] as const] : []),
+      ['Event', packet.type], ['Sensor status', scenario.motion ? 'Abnormal · simulated' : 'Vibration trigger · simulated'],
+      ['Hop count', String(packet.hop)], ['Packet status', step],
     ]} />
   </details>
 }
@@ -47,7 +49,7 @@ function GatewaySteps({ scenario, now }: { scenario: Scenario; now: number }) {
   const done = packet?.step === 'processed'
   const elapsed = processing ? now - packet.at : 0
   const steps = [
-    ['RF packet received', Boolean(packet?.sender === '2L' && (packet.step === 'at-3MH' || processing || done))],
+    ['LoRa packet received', Boolean(packet?.sender === 'NODE-02' && (packet.step === 'at-GW-01' || processing || done))],
     ['Packet validation', done || elapsed >= 1],
     ['Duplicate check', done || elapsed >= 2],
     ['Data decoding', done || elapsed >= 3],
@@ -58,10 +60,29 @@ function GatewaySteps({ scenario, now }: { scenario: Scenario; now: number }) {
     <span className="eyebrow">SIMULATED GATEWAY PROCESSING</span>
     <ol className="gateway-steps">{steps.map(([label, completed]) => <li key={label} data-done={completed}>{label}</li>)}</ol>
     <Facts data={[
-      ['UART endpoint', 'HC-12 → Tinker Board'], ['Duplicate check', scenario.duplicate],
-      ['Cloud sync', scenario.sync], ['RF diagnostic', scenario.probeReceived ? '00422 received locally' : scenario.probeAt === null ? 'Standby' : '00422 in transit'], ['Internet', scenario.internet ? 'Online' : 'Offline'],
+      ['Receiver interface', 'LoRa module → Tinker Board'],
+      ['Packet validation', steps[1][1] ? 'Passed' : 'Awaiting packet processing'],
+      ['Duplicate check', done ? scenario.duplicate : steps[2][1] ? 'Checking origin and sequence' : 'Standby'],
+      ['Gateway processing', done ? 'Complete' : processing ? 'Started' : 'Standby'],
+      ['Cloud sync', scenario.sync], ['RF diagnostic', scenario.probeReceived ? 'PS-002 received locally' : scenario.probeAt === null ? 'Standby' : 'PS-002 in transit'], ['Internet', scenario.internet ? 'Online' : 'Offline'],
     ]} />
   </div>
+}
+
+function MotionReadings({ age }: { age: number }) {
+  const amplitude = Math.max(.24, Math.exp(-Math.max(0, age - 3) * .14))
+  const pulse = age * 1.67
+  const acceleration = [
+    (.34 + .08 * Math.sin(pulse)) * amplitude,
+    (.68 + .13 * Math.sin(pulse + 1.2)) * amplitude,
+    1 + (.29 + .08 * Math.cos(pulse)) * amplitude,
+  ]
+  const angularVelocity = [7.4, 12.3, 4.1].map((axis, i) =>
+    (axis + 1.9 * Math.sin(pulse + i)) * amplitude)
+  return <>
+    <div><dt>Accel X / Y / Z</dt><dd>{acceleration.map((axis) => axis.toFixed(2)).join(' / ')} g</dd></div>
+    <div><dt>Gyro X / Y / Z</dt><dd>{angularVelocity.map((axis) => axis.toFixed(1)).join(' / ')} °/s</dd></div>
+  </>
 }
 
 export function Inspection({ focus }: { focus: Focus }) {
@@ -80,28 +101,31 @@ export function Inspection({ focus }: { focus: Focus }) {
       <p>Inclinometers and tilt sensors for slope movement. Piezometers and rain gauges for water conditions. Extensometers for crack displacement. Vibration or seismic instruments where justified.</p>
     </details>
   </div>
-  if (focus === '1E') return <>
+  if (focus === 'NODE-01') return <>
     <div className="inspection-extra"><span className="eyebrow"><Activity size={14} /> SIMULATED SENSOR DATA</span>
-      <Facts data={[
-        ['Node', '1E'], ['SW-420', scenario.vibrationAt === null ? 'Digital trigger idle' : 'Vibration triggered · digital'],
-        ['GY-521 MPU-6050', scenario.motion ? 'Abnormal motion observed' : 'Acceleration / angular velocity'],
-        ...(scenario.motion ? [['Acceleration X / Y / Z', '0.42 / 0.81 / 1.37 g']] : []) as [string, string][],
-        ['Arduino UNO R3', scenario.packet ? 'Event generated · HC-12 ready' : 'Monitoring'],
-      ]} />
+      <dl>
+        <div><dt>Sensor station</dt><dd>NODE-01 · Active</dd></div>
+        <div><dt>SW-420</dt><dd>{scenario.vibrationAt === null ? 'Digital trigger idle' : 'Vibration triggered · digital'}</dd></div>
+        <div><dt>MPU6050</dt><dd>{scenario.motion ? 'Abnormal motion observed' : 'Acceleration / angular velocity'}</dd></div>
+        {scenario.motion && <MotionReadings age={Math.max(0, second - (scenario.vibrationAt ?? second))} />}
+        <div><dt>ESP32-C3 SuperMini</dt><dd>{scenario.packet ? 'Warning generated' : scenario.motion ? 'Processing sensor inputs' : 'Monitoring'}</dd></div>
+        <div><dt>Soil moisture</dt><dd>Elevated · independent input</dd></div>
+        <div><dt>Bimetallic switch</dt><dd>Open · independent input</dd></div>
+      </dl>
     </div>
     {scenario.packet && <PacketInspector scenario={scenario} now={second} />}
   </>
-  if (focus === '2L' || focus === 'packet') return <>
+  if (focus === 'NODE-02' || focus === 'packet') return <>
     <PacketInspector scenario={scenario} now={second} />
-    {focus === '2L' && !scenario.packet && <Facts data={[
-      ['Node', '2L · Sensor / relay'], ['MCU', 'Arduino UNO R3'], ['Sensors', 'SW-420 · GY-521 MPU-6050'], ['Radio', 'HC-12 wireless serial'],
+    {focus === 'NODE-02' && !scenario.packet && <Facts data={[
+      ['Node', 'NODE-02 · LoRa relay'], ['Controller', 'ESP32-C3 SuperMini'], ['Forwarding', 'Custom routing protocol'],
     ]} />}
   </>
-  if (focus === '3MH') return <GatewaySteps scenario={scenario} now={second} />
+  if (focus === 'GW-01') return <GatewaySteps scenario={scenario} now={second} />
   if (focus === 'cloud') return <div className="inspection-extra">
     <span className="eyebrow"><Database size={14} /> SIMULATED SUPABASE RECORDS</span>
     <Facts data={[
-      ['Machine evidence', scenario.sensorInCloud ? '1E · event 00421' : 'Awaiting synchronized event'],
+      ['Machine evidence', scenario.sensorInCloud ? 'NODE-01 · event PS-001' : 'Awaiting synchronized event'],
       ['Community evidence', scenario.report === 'submitted' ? 'Ridge Hamlet · ' + REPORT_ID : 'Awaiting witness report'],
       ['Correlation', scenario.correlated ? 'Same road cut · ' + OBSERVATION.zone : 'Awaiting both sources'],
       ['Verification', scenario.verification],
@@ -127,8 +151,8 @@ export function Inspection({ focus }: { focus: Focus }) {
   ]} />
   if (focus === 'world') return <div className="inspection-extra">
     <Facts data={[
-      ['Prototype radios', '2 physical HC-12 modules confirmed'],
-      ['3MH endpoint', 'Virtual third endpoint. Hardware needs another compatible HC-12 or a designed interface.'],
+      ['Field architecture', 'NODE-01 sensing → NODE-02 relay → GW-01'],
+      ['Network', 'Simulated LoRa links with custom forwarding'],
     ]} />
   </div>
   return scenario.settled || scenario.barrier ? <Facts data={[
@@ -140,7 +164,7 @@ export function Inspection({ focus }: { focus: Focus }) {
 export function FusionFlow() {
   return <div className="fusion-flow" aria-label="Hybrid PahaadSaathi architecture">
     <div className="fusion-sources">
-      <span><Radio size={15} /> 1E → 2L → 3MH <small>Prototype · HC-12</small></span>
+      <span><Radio size={15} /> NODE-01 → NODE-02 → GW-01 <small>Field network · LoRa</small></span>
       <span><Smartphone size={15} /> Community reports <small>Populated areas</small></span>
     </div>
     <ArrowDown size={14} />

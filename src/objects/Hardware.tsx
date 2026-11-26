@@ -2,8 +2,7 @@ import { Html, Line } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { useRef } from 'react'
 import { Group, Vector3 } from 'three'
-import { clock, useGame } from '../game/GameEngine'
-import { CUES, STAGES } from '../game/Timeline'
+import { clock, regionalView, useGame, worldFocus } from '../game/GameEngine'
 import { Box } from '../world/Infrastructure'
 import { gateway, node, relay } from '../world/layout'
 
@@ -38,23 +37,36 @@ function Components({ w, d, count }: { w: number; d: number; count: number }) {
   })}</>
 }
 
-function Uno() {
+function Controller({ active }: { active: boolean }) {
   return <>
-    <Board w={2.09} d={1.46} color="#1b7a8c" />
-    <Components w={1.26} d={1.06} count={17} />
-    <Box size={[.47, .35, .42]} position={[-.87, .207, -.44]} color={silver} />
-    <Box size={[.022, .17, .25]} position={[-1.111, .23, -.44]} color="#353e3c" />
-    <Box size={[.38, .29, .32]} position={[-.88, .19, .435]} color={dark} />
-    <Box size={[.018, .125, .15]} position={[-1.08, .195, .435]} color="#0f1717" />
-    <Box size={[.78, .125, .29]} position={[.37, .112, .17]} color="#292e2e" />
-    {[.02, .32].map((z) => <Header key={z} at={[.37, .076, z]} count={12} step={.061} />)}
-    <Header at={[.26, .103, -.59]} count={14} step={.105} />
-    <Header at={[.41, .103, .59]} count={12} step={.111} />
-    <Box size={[.23, .092, .115]} position={[-.39, .088, .15]} color={silver} />
-    <Box size={[.082, .055, .075]} position={[-.21, .081, -.45]} color="#9ffc93" glow />
-    {[-.38, -.54].map((x) => <mesh key={x} position={[x, .14, .43]}>
-      <cylinderGeometry args={[.068, .068, .19, 9]} /><meshStandardMaterial color={silver} metalness={.34} roughness={.77} />
-    </mesh>)}
+    <Board w={1.6} d={1.05} color="#202731" />
+    <Components w={.94} d={.65} count={13} />
+    <Box size={[.33, .16, .35]} position={[-.745, .12, -.04]} color={silver} />
+    <Box size={[.012, .075, .22]} position={[-.918, .122, -.04]} color="#18201f" />
+    <Box size={[.3, .089, .31]} position={[.015, .084, -.03]} color="#101419" />
+    <Header at={[.04, .077, -.405]} count={8} step={.145} />
+    <Header at={[.04, .077, .405]} count={8} step={.145} />
+    <Box size={[.22, .05, .18]} position={[.56, .066, .12]} color="#9f7d46" />
+    <Box size={[.085, .04, .07]} position={[.37, .075, -.19]} color={active ? '#baffbd' : '#4b785d'} glow={active} />
+    <Box size={[.10, .075, .09]} position={[-.48, .085, .19]} color="#bbbdb7" />
+  </>
+}
+
+function SoilProbe() {
+  return <group rotation-y={-.15}>
+    <Box size={[.48, .07, .29]} position={[-.19, 0, 0]} color="#315b48" />
+    {[-.087, .087].map((z) => <Box key={z} size={[.57, .047, .074]} position={[.29, .006, z]} color="#c29959" />)}
+    <Box size={[.15, .043, .115]} position={[-.16, .058, 0]} color={dark} />
+  </group>
+}
+
+function ThermalSwitch() {
+  return <>
+    <mesh position={[0, .12, 0]}>
+      <cylinderGeometry args={[.187, .204, .23, 12]} /><meshStandardMaterial color={silver} metalness={.55} roughness={.58} />
+    </mesh>
+    {[-.085, .085].map((z) => <Box key={z} size={[.43, .04, .06]} position={[-.128, .028, z]} color={gold} />)}
+    <Box size={[.17, .055, .17]} position={[0, .008, 0]} color={dark} />
   </>
 }
 
@@ -81,20 +93,18 @@ function Mpu() {
   </>
 }
 
-function Radio() {
+function Radio({ active }: { active: boolean }) {
   return <>
-    <Board w={1.18} d={.57} color="#1b7960" />
-    <Box size={[.28, .087, .226]} position={[-.102, .087, -.022]} color={dark} />
-    <Components w={.8} d={.44} count={11} />
-    <Header at={[-.025, .074, .196]} count={5} step={.132} />
-    <Box size={[.17, .081, .108]} position={[-.39, .08, -.11]} color={silver} />
-    <Box size={[.15, .10, .13]} position={[.49, .087, -.109]} color={gold} />
-    <mesh position={[.518, .405, -.109]}>
-      <cylinderGeometry args={[.024, .03, .66, 8]} /><meshStandardMaterial color={gold} metalness={.42} roughness={.53} />
+    <Board w={1.45} d={.76} color="#24292d" />
+    <Components w={1.05} d={.51} count={9} />
+    <Header at={[-.04, .075, .28]} count={9} step={.107} />
+    <Box size={[.59, .103, .39]} position={[-.16, .092, -.043]} color="#a4adb0" />
+    <Box size={[.37, .015, .21]} position={[-.16, .151, -.043]} color="#757f82" />
+    <Box size={[.16, .10, .15]} position={[.519, .082, -.108]} color={gold} />
+    <mesh position={[.52, .445, -.11]}>
+      <cylinderGeometry args={[.035, .045, .77, 8]} /><meshStandardMaterial color="#323c3a" roughness={.78} />
     </mesh>
-    <mesh position={[.52, .54, -.11]} rotation-x={Math.PI / 2}>
-      <torusGeometry args={[.065, .013, 5, 12, Math.PI * 1.7]} /><meshStandardMaterial color={gold} metalness={.42} roughness={.53} />
-    </mesh>
+    <Box size={[.081, .045, .072]} position={[.32, .072, .11]} color={active ? '#95f7ff' : '#517079'} glow={active} />
   </>
 }
 
@@ -117,12 +127,15 @@ function Tinker() {
 type Label = { at: [number, number, number]; name: string; role: string; align?: string }
 const fieldLabels: Label[] = [
   { at: [-2.66, 2.81, .95], name: 'SW-420', role: 'Digital vibration trigger', align: 'left' },
-  { at: [-2.64, 2.93, -.77], name: 'GY-521 MPU6050', role: 'Acceleration + angular velocity', align: 'left' },
-  { at: [-.01, 3.15, -.27], name: 'Arduino UNO R3', role: 'Processes sensor inputs' },
-  { at: [2.56, 2.82, -.2], name: 'HC-12 transmitter', role: 'Wireless serial', align: 'right' },
+  { at: [-2.64, 2.93, -.77], name: 'MPU6050', role: 'Acceleration + angular velocity', align: 'left' },
+  { at: [-.01, 3.15, -.27], name: 'ESP32-C3 SuperMini', role: 'Processes sensor inputs' },
+  { at: [2.52, 2.82, -.2], name: 'LoRa module', role: 'Separate RF transceiver', align: 'right' },
+  { at: [-.87, 2.33, 1.63], name: 'Soil moisture probe', role: 'Independent ground input', align: 'context' },
+  { at: [1.12, 2.36, 1.57], name: 'Bimetallic switch', role: 'Independent thermal contact', align: 'context' },
 ]
+const relayLabels: Label[] = [fieldLabels[2], { ...fieldLabels[3], role: 'Receive and forward PS-001' }]
 const gatewayLabels: Label[] = [
-  { at: [-2.36, 2.98, .16], name: 'HC-12 receiver', role: 'Incoming wireless serial', align: 'left' },
+  { at: [-2.36, 2.98, .16], name: 'LoRa receiver', role: 'Simulated LoRa reception', align: 'left' },
   { at: [.93, 3.32, -.12], name: 'ASUS Tinker Board', role: 'Original gateway · event forwarding', align: 'right' },
 ]
 
@@ -139,45 +152,47 @@ const flowLines: [number, number, number][][] = [
 ]
 const localPulse = new Vector3(), localNext = new Vector3()
 
-function NodeMarker({ id, role }: { id: '1E' | '2L' | '3MH'; role: string }) {
-  const presenter = useGame((state) => state.control === 'presenter')
+function NodeMarker({ id, role }: { id: 'NODE-01' | 'NODE-02' | 'GW-01'; role: string }) {
+  const presenter = useGame((state) => state.control !== 'auto')
   return <Html position={[0, 4.3, 0]} center zIndexRange={[16, 13]} pointerEvents={presenter ? 'auto' : 'none'} distanceFactor={18}>
     {presenter ? <button className="world-tag node-tag" title={role} onClick={() => useGame.getState().inspect(id)} aria-label={'Inspect node ' + id}>{id}<span>{role}</span></button> :
       <div className="world-tag node-tag">{id}<span>{role}</span></div>}
   </Html>
 }
 
-export function FieldHardware({ id }: { id: '1E' | '2L' }) {
+export function FieldHardware({ id }: { id: 'NODE-01' | 'NODE-02' }) {
   const cover = useRef<Group>(null)
   const spark = useRef<Group>(null)
-  const position = id === '1E' ? node : relay
-  const architecture = useGame((state) => state.scenario.architecture)
+  const position = id === 'NODE-01' ? node : relay
+  const regional = useGame(regionalView)
   const mode = useGame((state) => state.mode)
   const control = useGame((state) => state.control)
-  const focus = useGame((state) => state.control === 'presenter' ? state.focus : STAGES[state.stage].focus)
+  const focus = useGame(worldFocus)
   const packetStep = useGame((state) => state.scenario.packet?.step)
+  const field = id === 'NODE-01'
+  const sampled = useGame((state) => state.scenario.vibrationAt !== null)
   const inspection = focus === id
-  const processing = inspection && (id === '1E' ? packetStep === 'ready' : packetStep === 'at-2L' || packetStep === 'forwarding-2L')
+  const radioActive = field ? packetStep === 'sending-NODE-01' : packetStep === 'at-NODE-02' || packetStep === 'forwarding-NODE-02'
+  const processing = field && sampled && (packetStep === undefined || packetStep === 'ready' || radioActive)
   useFrame((_, delta) => {
     const game = useGame.getState()
     const t = clock.time
-    const active = game.control === 'presenter' ? game.focus === id :
-      id === '1E' ? t >= CUES.node && t < CUES.approach || t >= CUES.detection && t < CUES.radio + 1 :
-        t >= CUES.relay && t < CUES.forward + 1.3
+    const active = worldFocus(game) === id || radioActive || (field && processing)
     if (cover.current && game.mode !== 'paused') cover.current.rotation.x += ((active ? -2.08 : 0) - cover.current.rotation.x) * (1 - Math.exp(-delta * 5))
     if (spark.current && processing) {
-      const traversal = (t * .9 % 3 + 3) % 3
+      const input = (t * 1.1 % 2 + 2) % 2
+      const traversal = packetStep === undefined ? input : 2 + (t * .95 % 1 + 1) % 1
       const baseline = flowLines[Math.floor(traversal)]
       const amount = (traversal % 1) * 3
       localPulse.fromArray(baseline[Math.floor(amount)]).lerp(localNext.fromArray(baseline[Math.min(3, Math.floor(amount) + 1)]), amount % 1)
       spark.current.position.copy(localPulse)
     }
   })
-  if (architecture !== 'prototype') return null
+  if (regional) return null
   return <group position={position} onClick={(e) => {
-    if (control === 'presenter' && e.delta < 5) { e.stopPropagation(); useGame.getState().inspect(id) }
+    if (control !== 'auto' && e.delta < 5) { e.stopPropagation(); useGame.getState().inspect(id) }
   }}>
-    {mode !== 'menu' && !inspection && <NodeMarker id={id} role="Sensor / relay" />}
+    {mode !== 'menu' && !inspection && <NodeMarker id={id} role={field ? "Slope monitoring station" : "LoRa relay"} />}
     <Box size={[6.55, .48, 3.95]} position={[0, -.18, .05]} color="#716f5b" shadow />
     <Box size={[1.8, .22, 1.66]} position={[0, .13, 0]} color="#7b7e66" />
     <Box size={[.22, 1.48, .22]} position={[-1.22, .69, .37]} color="#60665b" shadow />
@@ -190,46 +205,53 @@ export function FieldHardware({ id }: { id: '1E' | '2L' }) {
       <Box size={[5.94, .27, .10]} position={[0, .16, 2.72]} color="#4b594d" />
       <Box size={[1.54, .026, .51]} position={[0, .39, 1.52]} color="#cdb284" />
     </group>
-    <group position={[-2.05, 1.59, .67]}><Vibration /></group>
-    <group position={[-2.05, 1.59, -.67]}><Mpu /></group>
-    <group position={[-.22, 1.59, -.05]}><Uno /></group>
-    <group position={[1.83, 1.59, 0]}><Radio /></group>
-    {flowLines.map((points, i) => <Line key={i} points={points} color={processing ? '#95f4ca' : i === 1 ? '#858e66' : '#ba9254'} lineWidth={processing ? 2.8 : 1.6} />)}
+    {field && <>
+      <group position={[-2.05, 1.59, .67]}><Vibration /></group>
+      <group position={[-2.05, 1.59, -.67]}><Mpu /></group>
+      <group position={[-.94, 1.60, .95]}><SoilProbe /></group>
+      <group position={[.88, 1.60, .94]}><ThermalSwitch /></group>
+      <Line points={[[-.90, 1.67, .95], [-.53, 1.74, .76], [-.21, 1.7, .35]]} color="#b7aa7b" lineWidth={1.35} />
+      <Line points={[[.88, 1.67, .94], [.54, 1.74, .74], [.12, 1.7, .34]]} color="#b7aa7b" lineWidth={1.35} />
+    </>}
+    <group position={[-.22, 1.59, -.05]}><Controller active={processing || radioActive} /></group>
+    <group position={[1.83, 1.59, 0]}><Radio active={radioActive} /></group>
+    {(field ? flowLines : [flowLines[2]]).map((points, i) =>
+      <Line key={i} points={points} color={processing || radioActive ? '#a4ecdd' : '#ad925d'} lineWidth={processing || radioActive ? 2.6 : 1.45} />)}
     <group ref={spark} visible={processing}>
       <mesh><sphereGeometry args={[.1, 12, 8]} /><meshBasicMaterial color="#dcffcd" toneMapped={false} /></mesh>
     </group>
-    {inspection && <Labels labels={fieldLabels} />}
+    {inspection && <Labels labels={field ? fieldLabels : relayLabels} />}
   </group>
 }
 
 export function GatewayHardware() {
   const mode = useGame((state) => state.mode)
   const control = useGame((state) => state.control)
-  const focus = useGame((state) => state.control === 'presenter' ? state.focus : STAGES[state.stage].focus)
-  const architecture = useGame((state) => state.scenario.architecture)
+  const focus = useGame(worldFocus)
+  const regional = useGame(regionalView)
   const step = useGame((state) => state.scenario.packet?.step)
   const spark = useRef<Group>(null)
-  const active = focus === '3MH'
+  const active = focus === 'GW-01'
   useFrame(() => {
     if (!spark.current) return
     const t = (clock.time % 1.8) / 1.8
     spark.current.position.set(-1.91 + t * 2.1, 1.72 + Math.sin(t * Math.PI) * .18, .28 - t * 1.06)
   })
-  if (architecture !== 'prototype') return null
+  if (regional) return null
   return <group position={gateway} onClick={(e) => {
-    if (control === 'presenter' && e.delta < 5) { e.stopPropagation(); useGame.getState().inspect('3MH') }
+    if (control !== 'auto' && e.delta < 5) { e.stopPropagation(); useGame.getState().inspect('GW-01') }
   }}>
-    {mode !== 'menu' && !active && <NodeMarker id="3MH" role="Main headquarters" />}
+    {mode !== 'menu' && !active && <NodeMarker id="GW-01" role="Main headquarters" />}
     <Box size={[5.95, .34, 2.86]} position={[0, 1.3, 0]} color="#4c574b" shadow />
     <Box size={[5.82, .055, 2.66]} position={[0, 1.51, 0]} color="#7d8371" />
     <Box size={[.21, 1.37, 1.66]} position={[-2.59, .61, 0]} color="#626d63" shadow />
     <Box size={[.21, 1.37, 1.66]} position={[2.59, .61, 0]} color="#626d63" shadow />
-    <group position={[-2.05, 1.59, .1]}><Radio /></group>
+    <group position={[-2.05, 1.59, .1]}><Radio active={step === 'at-GW-01' || step === 'processing'} /></group>
     <group position={[.76, 1.59, -.19]}><Tinker /></group>
     <Line points={[[-1.93, 1.68, .31], [-1.53, 1.87, .44], [-1.28, 1.78, .06], [-.60, 1.68, -.63], [.23, 1.72, -.78]]}
       color={active ? '#93f3ca' : '#a6915b'} lineWidth={active ? 2.8 : 1.5} />
     {active && <Labels labels={gatewayLabels} />}
-    {(step === 'at-3MH' || step === 'processing') && <group ref={spark}>
+    {(step === 'at-GW-01' || step === 'processing') && <group ref={spark}>
       <mesh><sphereGeometry args={[.10, 10, 6]} /><meshBasicMaterial color="#d7ffe4" toneMapped={false} /></mesh>
     </group>}
   </group>

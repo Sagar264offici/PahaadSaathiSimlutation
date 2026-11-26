@@ -56,8 +56,8 @@ export default function World({ onReady, onFallback }: { onReady: () => void; on
     <ValleyStructures />
     <Forest quality={quality} />
     <Vehicle />
-    <FieldHardware id="1E" />
-    <FieldHardware id="2L" />
+    <FieldHardware id="NODE-01" />
+    <FieldHardware id="NODE-02" />
     <GatewayHardware />
     <Incident quality={quality} />
     <Network />

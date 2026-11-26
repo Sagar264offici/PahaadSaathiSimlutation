@@ -58,10 +58,22 @@ function App() {
   const [loaded, setLoaded] = useState(false)
   const onReady = useCallback(() => setLoaded(true), [])
   const onFallback = useCallback(() => setFallback(true), [])
-  useEffect(() => bindDriveInput(() => {
-    const game = useGame.getState()
-    return game.control === 'drive' && game.mode === 'running'
-  }), [])
+  useEffect(() => {
+    const stop = bindDriveInput(() => {
+      const game = useGame.getState()
+      return game.control === 'drive' && game.mode === 'running' && game.focus === 'vehicle'
+    })
+    function shortcuts(event: KeyboardEvent) {
+      if (event.repeat || event.metaKey || event.ctrlKey || event.altKey ||
+        (event.target as HTMLElement | null)?.closest('textarea, input, select, [contenteditable]')) return
+      const game = useGame.getState()
+      if (game.control !== 'drive' || game.mode !== 'running') return
+      if (event.code === 'KeyE') game.interact()
+      if (event.code === 'KeyC') game.inspect(game.focus === 'vehicle' ? 'world' : 'vehicle')
+    }
+    window.addEventListener('keydown', shortcuts)
+    return () => { stop(); window.removeEventListener('keydown', shortcuts) }
+  }, [])
   useEffect(() => {
     let id = 0
     let previous = performance.now()

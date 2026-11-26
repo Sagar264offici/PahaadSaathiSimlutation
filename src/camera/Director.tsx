@@ -3,7 +3,7 @@ import gsap from 'gsap'
 import { useEffect, useRef } from 'react'
 import { PerspectiveCamera, Vector3 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { driveHeading, drivePosition } from '../game/Drive'
+import { DRIVE_GATES, driveHeading, drivePosition } from '../game/Drive'
 import { clock, driving, useGame } from '../game/GameEngine'
 import { type Focus, type Scenario } from '../game/Scenario'
 import { cueIndex, CUES, phase } from '../game/Timeline'
@@ -12,6 +12,8 @@ import { cloud, closurePoint, elevationAt, gateway, junctionU, mainRoad, node, p
 type Pose = { position: Vector3; target: Vector3; fov: number; shift: number }
 type Vec = [number, number, number]
 const ease = gsap.parseEase('sine.inOut')
+const slopeFocus = slope.clone().add(new Vector3(0, 7, 0))
+const lookoutPoint = DRIVE_GATES[0].point
 
 function pose(position: Vec, target: Vec, fov = 47, shift = 0): Pose {
   return { position: new Vector3(...position), target: new Vector3(...target), fov, shift }
@@ -49,6 +51,14 @@ function follow(time: number, s: Scenario) {
   }
 }
 
+function distantSlope(t: number, s: Scenario) {
+  const { road, u } = vehicleAt(t, s.turnAt)
+  const car = road.getPointAt(u)
+  const shot = near(car, [-9, 38, 53], [0, 0, 0], 57, .01)
+  shot.target.lerp(slopeFocus, .54)
+  return shot
+}
+
 function rockfall(t: number, s: Scenario) {
   const age = s.rockAt === null ? 0 : Math.max(0, t - s.rockAt)
   const close = near(slope, [-25, 13, 32], [-8, -2.5, 1], 46, .07)
@@ -65,16 +75,16 @@ function rockfall(t: number, s: Scenario) {
   return view
 }
 
-const inspect1E = () => near(node, [1.05, 6.8, 8.5], [0, 1.95, 0], 43, .10)
-const inspect2L = () => near(relay, [.56, 6.8, 8.9], [0, 1.9, 0], 44, .10)
-const inspect3MH = () => near(gateway, [1.8, 6.9, 8.64], [.05, 1.78, 0], 43, .10)
+const inspectStation = () => near(node, [1.05, 6.8, 8.5], [0, 1.95, 0], 43, .10)
+const inspectRelay = () => near(relay, [.56, 6.8, 8.9], [0, 1.9, 0], 44, .10)
+const inspectGateway = () => near(gateway, [1.8, 6.9, 8.64], [.05, 1.78, 0], 43, .10)
 const cloudView = () => near(cloud, [3.5, 3.8, 20.4], [0, .3, 0], 44, .12)
 const phoneView = () => near(phone, [1.15, .49, 9], [0, .02, 0], 44, .13)
 const proposal = () => pose([-11, 170, 187], [-13, 40, -56], 59, .04)
 
 function packetView(t: number, s: Scenario) {
   const flight = radioFlight(s)
-  if (!flight) return near(s.packet?.sender === '2L' ? receiver : relayRadio, [8.4, 5.8, 13.5], [0, .44, -.43], 55, .10)
+  if (!flight) return near(s.packet?.sender === 'NODE-02' ? receiver : relayRadio, [8.4, 5.8, 13.5], [0, .44, -.43], 55, .10)
   const packet = flight.path.getPointAt(phase(t, flight.from, flight.to))
   return near(packet, [8.4, 5.8, 13.5], [0, .44, -.43], 55, .10)
 }
@@ -87,14 +97,12 @@ function routeView(t: number, s: Scenario) {
 const shots: { from: number; blend: number; at: (time: number, scenario: Scenario) => Pose }[] = [
   { from: CUES.intro, blend: 0, at: (t) => mix(vista(), pose([29, 67, 129], [24, 30, 13], 51), ease(phase(t, 0, CUES.drive))) },
   { from: CUES.drive, blend: 4.2, at: follow },
-  { from: CUES.node, blend: 3.0, at: inspect1E },
-  { from: CUES.approach, blend: 3.1, at: follow },
-  { from: CUES.rockfall - 1.2, blend: 2.1, at: rockfall },
-  { from: CUES.detection, blend: 2.8, at: inspect1E },
+  { from: CUES.lookout, blend: 4.4, at: distantSlope },
+  { from: CUES.approach, blend: 7.5, at: inspectStation },
   { from: CUES.radio, blend: 1.4, at: packetView },
-  { from: CUES.relay, blend: 2.2, at: inspect2L },
+  { from: CUES.relay, blend: 2.2, at: inspectRelay },
   { from: CUES.forward, blend: 1.45, at: packetView },
-  { from: CUES.gateway, blend: 2.1, at: inspect3MH },
+  { from: CUES.gateway, blend: 2.1, at: inspectGateway },
   { from: CUES.cloud, blend: 3.25, at: cloudView },
   { from: CUES.community, blend: 2.35, at: (t) => mix(
     near(witness, [-4.8, 4.2, 7.3], [0, 1.25, 0], 44, .10),
@@ -104,7 +112,7 @@ const shots: { from: number; blend: number; at: (time: number, scenario: Scenari
   { from: CUES.confirmed, blend: 2.25, at: rockfall },
   { from: CUES.alert, blend: 2.3, at: phoneView },
   { from: CUES.diversion, blend: 3.0, at: routeView },
-  { from: CUES.offline, blend: 2.4, at: (t) => mix(inspect3MH(),
+  { from: CUES.offline, blend: 2.4, at: (t) => mix(inspectGateway(),
     near(gateway, [16.5, 20, 33], [11, 5, 4], 53, .06),
     ease(phase(t, CUES.offline + 2, CUES.offline + 6))) },
   { from: CUES.restored, blend: 2.4, at: cloudView },
@@ -118,12 +126,15 @@ const shots: { from: number; blend: number; at: (time: number, scenario: Scenari
 
 function manualShot(focus: Focus, time: number, scenario: Scenario) {
   switch (focus) {
-    case 'world': return vista()
+    case 'world': {
+      const car = drivePosition(driving.frame)
+      return near(car, [17, 25, 29], [0, 1.3, 0], 55, .03)
+    }
     case 'vehicle': return scenario.routeAt === null ? follow(time, scenario) : routeView(time, scenario)
     case 'rockfall': return rockfall(time, scenario)
-    case '1E': return inspect1E()
-    case '2L': return inspect2L()
-    case '3MH': return inspect3MH()
+    case 'NODE-01': return inspectStation()
+    case 'NODE-02': return inspectRelay()
+    case 'GW-01': return inspectGateway()
     case 'packet': return packetView(time, scenario)
     case 'cloud': return cloudView()
     case 'community': return phoneView()
@@ -137,6 +148,7 @@ export function Director() {
   const orbit = useRef<OrbitControls | null>(null)
   const manual = useRef({ version: -1, began: 0, owned: false, start: vista() })
   const previous = useRef(vista())
+  const wasInspecting = useRef(false)
   const driveCamera = useRef({ run: -1, position: new Vector3(), target: new Vector3(), wanted: new Vector3(), look: new Vector3(), heading: new Vector3() })
 
 
@@ -161,37 +173,42 @@ export function Director() {
     const time = clock.time
     const controls = orbit.current
     const menu = game.mode === 'menu'
-    const presenter = !menu && game.control === 'presenter'
-    if (controls) controls.enabled = presenter
+    const inspection = !menu && (game.control === 'presenter' || game.control === 'drive' && game.focus !== 'vehicle' || game.cameraOverride !== null)
+    const focus = game.cameraOverride ?? game.focus
+    if (controls) controls.enabled = inspection
     let shot: Pose
-    if (!menu && game.control === 'drive') {
+    const returning = wasInspecting.current && !inspection
+    wasInspecting.current = inspection
+    if (!inspection && !menu && game.control === 'drive') {
       const cameraRig = driveCamera.current
       drivePosition(driving.frame, cameraRig.wanted)
       driveHeading(driving.frame, cameraRig.heading)
+      const distanceToLookout = cameraRig.wanted.distanceTo(lookoutPoint)
       cameraRig.look.copy(cameraRig.wanted).addScaledVector(cameraRig.heading, 9.8)
       cameraRig.look.y += size.width / size.height < 1.06 ? -.6 : 1.65
       cameraRig.wanted.addScaledVector(cameraRig.heading, -11.9)
       cameraRig.wanted.y += 5.95
       const rockAt = game.scenario.rockAt
-      if (rockAt !== null && driving.frame.route === 'ridge') {
-        const raised = ease(phase(time, rockAt, rockAt + 2.1))
-        cameraRig.wanted.x += (9 + cameraRig.heading.x * 11.9) * raised
-        cameraRig.wanted.y += 10.6 * raised
-        cameraRig.wanted.z += (22 + cameraRig.heading.z * 11.9) * raised
-        cameraRig.look.x += (closurePoint.x - cameraRig.look.x) * .32 * raised
-        cameraRig.look.y += (closurePoint.y + 3.1 - cameraRig.look.y) * .32 * raised
-        cameraRig.look.z += (closurePoint.z - cameraRig.look.z) * .32 * raised
+      const raised = rockAt === null ? 1 - ease(phase(distanceToLookout, 9, 33)) : 1 - ease(phase(time - rockAt, 10, 17))
+      if (raised > 0 && driving.frame.route === 'ridge') {
+        cameraRig.wanted.x += (-5 + cameraRig.heading.x * 11.9) * raised
+        cameraRig.wanted.y += 32 * raised
+        cameraRig.wanted.z += (51 + cameraRig.heading.z * 11.9) * raised
+        cameraRig.look.lerp(slopeFocus, .55 * raised)
       }
       if (cameraRig.run !== game.run) {
         cameraRig.run = game.run
         cameraRig.position.copy(cameraRig.wanted)
         cameraRig.target.copy(cameraRig.look)
+      } else if (returning) {
+        cameraRig.position.copy(camera.position)
+        cameraRig.target.copy(previous.current.target)
       }
       const follow = 1 - Math.exp(-8.5 * delta)
       cameraRig.position.lerp(cameraRig.wanted, follow)
       cameraRig.target.lerp(cameraRig.look, follow)
       shot = { position: cameraRig.position, target: cameraRig.target, fov: 52, shift: .014 }
-    } else if (presenter && controls) {
+    } else if (inspection && controls) {
       if (manual.current.version !== game.focusVersion) {
         manual.current = {
           version: game.focusVersion, began: renderClock.elapsedTime, owned: false,
@@ -199,8 +216,8 @@ export function Director() {
         }
       }
       if (manual.current.owned) { controls.update(); previous.current.target.copy(controls.target); return }
-      const target = manualShot(game.focus, time, game.scenario)
-      if (game.focus !== 'world') target.shift = game.focus === 'rockfall' ? -.04 : -.095
+      const target = manualShot(focus, time, game.scenario)
+      if (focus !== 'world' && game.control !== 'auto') target.shift = focus === 'rockfall' ? -.04 : -.085
       const transition = ease(phase(renderClock.elapsedTime, manual.current.began, manual.current.began + 1.35))
       shot = mix(manual.current.start, target, transition)
     } else if (menu) shot = vista(Math.sin(clock.idle * .105) * 4.3)
@@ -220,7 +237,7 @@ export function Director() {
     const narrow = size.width / size.height < 1.06
     camera.fov = shot.fov + (narrow ? (menu ? 4 : 10) : 0)
     camera.setViewOffset(size.width, size.height, narrow ? 0 : -shot.shift * size.width, 0, size.width, size.height)
-    if (controls && presenter) controls.target.copy(shot.target)
+    if (controls && inspection) controls.target.copy(shot.target)
     previous.current = shot
   }, -2)
   return null

@@ -1,12 +1,12 @@
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { Activity, BadgeCheck, CarFront, ClipboardList, Gamepad2, Compass, Crosshair, House, MapPin, Maximize, Minimize, Mountain, Pause, Play, Radio, RotateCcw, Settings2, SkipForward, Volume2, VolumeX, Wifi, WifiOff } from 'lucide-react'
+import { Activity, BadgeCheck, CarFront, ClipboardList, Compass, Crosshair, House, MapPin, Maximize, Minimize, Mountain, Pause, Play, Radio, RotateCcw, SkipBack, Settings2, SkipForward, Volume2, VolumeX, Wifi, WifiOff } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { updateDriveMusic } from '../audio/DriveMusic'
 import { unlockAudio, updateScore } from '../audio/Score'
-import { useGame, type Quality, type Session } from '../game/GameEngine'
+import { regionalView, useGame, worldFocus, type Quality, type Session } from '../game/GameEngine'
 import { roadIsBlocked } from '../game/Scenario'
 import { CHAPTERS, CUES, DURATION, STAGES } from '../game/Timeline'
-import { Facts, focusLabels, FusionFlow, Inspection } from './Inspection'
+import { focusLabels, FusionFlow, Inspection } from './Inspection'
 import { DrivingHud } from './DrivingHud'
 import { MiniMap } from './MiniMap'
 import { EventLog, Presenter } from './Presenter'
@@ -21,24 +21,24 @@ function Control({ label, children, action, active, text = false, disabled = fal
 }
 
 function NetworkStatus() {
+  const regional = useGame(regionalView)
   const control = useGame((state) => state.control)
   const scenario = useGame((state) => state.scenario)
   const blocked = roadIsBlocked(scenario)
   const holding = control === 'drive' && scenario.rockAt !== null
   const WifiIcon = scenario.internet ? Wifi : WifiOff
   return <div className="network-status" aria-label="Network and hazard status">
-    {scenario.architecture === 'prototype' ? <div className="node-status" aria-label="Prototype nodes">
-      {(['1E', '2L', '3MH'] as const).map((id) => control === 'presenter' ?
+    {!regional ? <div className="node-status" aria-label="LoRa network nodes">
+      {(['NODE-01', 'NODE-02', 'GW-01'] as const).map((id) =>
         <button key={id} type="button" title={id + ' · Online'} onClick={() => useGame.getState().inspect(id)} aria-label={'Focus node ' + id}>
           <span className="status-light" />{id}<small>ONLINE</small>
-        </button> :
-        <span key={id}><span className="status-light" />{id}<small>ONLINE</small></span>)}
-      <span className="rf-status"><Radio size={13} /> RF ACTIVE</span>
+        </button>)}
+      <span className="rf-status"><Radio size={13} /> LoRa ACTIVE</span>
     </div> : <span className="rf-status"><Radio size={13} /> REAL-WORLD DEPLOYMENT · PROPOSED LoRa</span>}
     <div className="hazard-status">
       <span className={scenario.internet ? '' : 'warn'}><WifiIcon size={14} /> INTERNET {scenario.internet ? 'ONLINE' : 'OFFLINE'}</span>
       <span className={blocked || holding ? 'warn' : ''}>ROAD {scenario.verification === 'Confirmed closure' ? 'CLOSED' : blocked ? 'BLOCKED' : holding ? 'HOLD' : 'OPEN'}</span>
-      <span>HAZARD {scenario.rockAt !== null && !scenario.settled ? 'ROCKFALL DETECTED' : scenario.verification === 'Normal' && blocked ? 'ROCKFALL / BLOCKAGE' : scenario.verification.toUpperCase()}</span>
+      <span>HAZARD {scenario.rockAt !== null && !scenario.settled ? 'LANDSLIDE DETECTED' : scenario.verification === 'Normal' && blocked ? 'LANDSLIDE / BLOCKAGE' : scenario.verification.toUpperCase()}</span>
     </div>
   </div>
 }
@@ -52,10 +52,12 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
   const sound = useGame((state) => state.sound)
   const speed = useGame((state) => state.speed)
   const quality = useGame((state) => state.quality)
-  const manualFocus = useGame((state) => state.focus)
+  const focus = useGame(worldFocus)
+  const cameraOverride = useGame((state) => state.cameraOverride)
   const scenario = useGame((state) => state.scenario)
   const stage = STAGES[stageIndex]
   const reducedMotion = useReducedMotion()
+  const [presentationReady, setPresentationReady] = useState(false)
   const [settings, setSettings] = useState(false)
   const [showLog, setShowLog] = useState(false)
   const [fullscreen, setFullscreen] = useState(Boolean(document.fullscreenElement))
@@ -69,12 +71,11 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
   const presenter = !menu && control === 'presenter'
   const driveMode = !menu && control === 'drive'
   const overview = !complete && control === 'auto' && second >= CUES.overview
-  const focus = presenter ? manualFocus : stage.focus
   const nowBlocked = roadIsBlocked(scenario)
   const status = scenario.architecture === 'production' ? 'PRODUCTION PROPOSAL'
     : !scenario.internet ? 'INTERNET OFFLINE'
       : scenario.verification !== 'Normal' ? scenario.verification.toUpperCase()
-        : nowBlocked ? 'ROAD BLOCKED' : driveMode && scenario.rockAt !== null ? 'ROCKFALL TRIGGERED' : 'MONITORING'
+        : nowBlocked ? 'ROAD BLOCKED' : scenario.rockAt !== null ? 'LANDSLIDE TRIGGERED' : 'MONITORING'
 
   useEffect(() => {
     const cue = run + '/' + stageIndex + '/' + complete
@@ -109,6 +110,7 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
     else if (sound) unlockAudio()
     setSettings(false)
     setShowLog(false)
+    setPresentationReady(false)
     useGame.getState().start(session)
     if (session === 'auto') requestAnimationFrame(() => pauseButton.current?.focus({ preventScroll: true }))
   }
@@ -136,7 +138,7 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
         settingsButton.current?.focus()
         return
       }
-      if ((event.target as HTMLElement | null)?.closest('button, input, select, textarea')) return
+      if ((event.target as HTMLElement | null)?.closest(driveMode ? 'input, select, textarea' : 'button, input, select, textarea')) return
       if ((driveMode ? event.code === 'Escape' : event.code === 'Space') && !menu && !complete) {
         event.preventDefault()
         useGame.getState().togglePause()
@@ -167,14 +169,14 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
           <span>{menu ? 'FIELD SIMULATION' : '3D DISASTER SIMULATION'}</span></div>
       </div>
       {menu && <div className="compass" aria-hidden="true"><span>NW</span><i /><i /><i /><Crosshair size={13} /><i /><i /><i /><span>NE</span></div>}
-      {!menu && <div className="mode-label"><span className="status-light" />{presenter ? 'PRESENTER MODE' : driveMode ? 'DRIVE MODE' : 'AUTO MODE'}</div>}
+      {!menu && <div className="mode-label"><span className="status-light" />{presenter ? 'FIELD CONTROLS' : driveMode ? 'GAME MODE' : 'PRESENTATION MODE'}</div>}
       <div className="header-actions">
-        <div className={`system-tag ${nowBlocked ? 'red' : stage.tone ?? ''}`}>
+        <div className={`system-tag ${nowBlocked || scenario.rockAt !== null && !scenario.settled ? 'red' : stage.tone ?? ''}`}>
           <span className="status-light" />
           <span>{fallback ? '2D FALLBACK' : menu ? 'DEMONSTRATION ENVIRONMENT' : complete ? 'MISSION COMPLETE' : status}</span>
         </div>
         {!menu && <>
-          <Control label="Main menu" action={() => useGame.getState().menu()}><House size={17} /></Control>
+          <Control label="Main menu" action={() => { setPresentationReady(false); useGame.getState().menu() }}><House size={17} /></Control>
           {!complete && <button ref={pauseButton} className="control" type="button" title={mode === 'paused' ? 'Resume' : 'Pause'}
             aria-label={mode === 'paused' ? 'Resume' : 'Pause'} onClick={useGame.getState().togglePause}>
             {mode === 'paused' ? <Play size={17} /> : <Pause size={17} />}
@@ -192,17 +194,24 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
       <main className="menu-copy">
         <div className="eyebrow"><span className="accent-rule" /> HIMALAYAN ROAD SAFETY</div>
         <h1><span>PAHAAD</span><span>SAATHI</span></h1>
-        <p className="menu-subtitle">3D disaster simulation</p>
-        <p className="menu-description">Drive the ridge road, react to a rockfall, and steer onto the mountain bypass.</p>
-        <div className="menu-entry">
-          <button className="start-button" type="button" disabled={!ready} onClick={() => start('drive')}>
-            <CarFront size={18} /> {ready ? 'START DRIVING' : 'LOADING ENVIRONMENT'}
+        <p className="menu-subtitle">Mountain Safety Simulation</p>
+        {presentationReady ? <>
+          <p className="menu-description">Watch the continuous 3D demonstration, from the distant landslide through LoRa detection, verification, and rerouting.</p>
+          <div className="menu-entry">
+            <button className="start-button" type="button" disabled={!ready} onClick={() => start('auto')}>
+              <Play size={17} fill="currentColor" /> START PRESENTATION
+            </button>
+            <button className="presenter-launch" type="button" onClick={() => setPresentationReady(false)}>BACK TO MODES</button>
+          </div>
+        </> : <div className="mode-choices">
+          <button className="mode-choice" type="button" disabled={!ready} onClick={() => setPresentationReady(true)} aria-label="Presentation Mode">
+            <Play size={19} /><strong>PRESENTATION MODE</strong><span>Cinematic autonomous system demonstration</span>
           </button>
-          <button className="presenter-launch" type="button" disabled={!ready} onClick={() => start('presenter')}>
-            <Compass size={17} /> PRESENTER MODE
+          <button className="mode-choice" type="button" disabled={!ready} onClick={() => start('drive')} aria-label="Game Mode">
+            <CarFront size={20} /><strong>GAME MODE</strong><span>Drive the ridge, explore sensors and track LoRa packets</span>
           </button>
-        </div>
-        <div className="runtime"><Gamepad2 size={15} /><span>KEYBOARD · GAMEPAD · TOUCH</span></div>
+        </div>}
+
       </main>
       <div className="menu-bottom">
         <div className="menu-controls">
@@ -222,8 +231,13 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
       <p>{driveMode ? `Ridge Road drive complete · ${timecode(second)}` : 'Detect early. Verify collectively. Route safely.'}</p>
       <FusionFlow />
       <div className="menu-entry">
-        <button className="start-button" type="button" ref={replayButton} onClick={() => start(control)}><RotateCcw size={17} /> {driveMode ? 'DRIVE AGAIN' : 'REPLAY SIMULATION'}</button>
-        <button className="presenter-launch" type="button" onClick={() => start('presenter')}><Compass size={17} /> PRESENTER MODE</button>
+        <button className="start-button" type="button" ref={replayButton} onClick={() => start(control)}><RotateCcw size={17} /> {driveMode ? 'DRIVE AGAIN' : 'REPLAY PRESENTATION'}</button>
+        <button className="presenter-launch" type="button" onClick={() => {
+          if (!driveMode) { start('drive'); return }
+          useGame.getState().menu()
+          setSettings(false)
+          setPresentationReady(true)
+        }}><Compass size={17} /> {driveMode ? 'PRESENTATION MODE' : 'GAME MODE'}</button>
       </div>
     </main> : driveMode ? <>
       <DrivingHud />
@@ -238,7 +252,6 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
             <h1 aria-live="polite">{focus === 'rockfall' && presenter && scenario.settled ? 'Major rockfall — road completely blocked' : routeTitle}</h1>
             <p>{inspectionDescription}</p>
             {!overview && <Inspection focus={focus} />}
-            {!presenter && stageIndex === 2 && <Facts data={[['Physical inventory', '2 HC-12 modules confirmed'], ['3MH radio', 'Third virtual endpoint · additional hardware required']]} />}
           </motion.section>
         </AnimatePresence>
       </main>
@@ -258,17 +271,28 @@ export function Hud({ ready, fallback }: { ready: boolean; fallback: boolean }) 
               {[.5, 1, 1.5, 2, 4].map((value) => <option key={value} value={value}>{value}×</option>)}
             </select>
           </label>
+          <label className="presentation-focus"><span className="sr-only">Camera focus</span>
+            <select aria-label="Camera focus" value={cameraOverride ?? ''} onChange={(event) => {
+              const value = event.target.value
+              useGame.getState().setCameraOverride(value ? value as import('../game/Scenario').Focus : null)
+            }}>
+              <option value="">Cinematic camera</option><option value="rockfall">Landslide face</option><option value="NODE-01">NODE-01</option>
+              <option value="NODE-02">NODE-02</option><option value="GW-01">GW-01</option><option value="packet">LoRa packet</option>
+              <option value="production">Regional deployment</option><option value="vehicle">SUV</option>
+            </select>
+          </label>
+          <Control label="Previous event" disabled={stageIndex === 0} action={() => useGame.getState().chapter(-1)}><SkipBack size={15} /></Control>
           <Control label="Replay event" action={() => useGame.getState().chapter(0)}><RotateCcw size={15} /></Control>
-          <Control label="Skip to next event" disabled={stageIndex === STAGES.length - 1} action={() => useGame.getState().chapter(1)}><SkipForward size={16} /></Control>
+          <Control label="Next event" disabled={stageIndex === STAGES.length - 1} action={() => useGame.getState().chapter(1)}><SkipForward size={16} /></Control>
           <Control label="Event log" active={showLog} action={() => setShowLog(!showLog)}><ClipboardList size={16} /></Control>
         </div>
       </>}
       <div className="simulated-tag"><span className="status-light" /> SIMULATION MODE — EVENTS ARE VIRTUALLY GENERATED</div>
     </>}
     {showLog && !presenter && !menu && <aside className="auto-log"><EventLog entries={scenario.log} /></aside>}
-    {!complete && !presenter && <MiniMap />}
+    {!complete && !presenter && (!driveMode || focus === 'vehicle') && <MiniMap />}
     {mode === 'paused' && !presenter && <div className="paused-layer"><div><span className="eyebrow">MISSION PAUSED</span>
-      <button type="button" className="start-button" onClick={useGame.getState().togglePause}><Play size={17} fill="currentColor" /> {driveMode ? 'RESUME DRIVE' : 'RESUME SIMULATION'}</button>
+      <button type="button" className="start-button" onClick={useGame.getState().togglePause}><Play size={17} fill="currentColor" /> {driveMode ? 'RESUME DRIVE' : 'RESUME PRESENTATION'}</button>
     </div></div>}
     {feedback && <div className="control-feedback" role="status">{feedback}</div>}
     {fallback && !complete && <div className="fallback-note"><MapPin size={14} /> Map view</div>}

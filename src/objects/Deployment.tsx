@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import { Antenna, House, RadioTower, Router } from 'lucide-react'
 import { useRef } from 'react'
 import { Group, Vector3 } from 'three'
-import { clock, useGame } from '../game/GameEngine'
+import { clock, regionalView, useGame } from '../game/GameEngine'
 import { Box } from '../world/Infrastructure'
 import { groundPoint } from '../world/layout'
 
@@ -55,7 +55,7 @@ function Pulses() {
 }
 
 export function Deployment() {
-  const active = useGame((game) => game.scenario.architecture === 'production')
+  const active = useGame(regionalView)
   if (!active) return null
   return <group>
     {sites.map(({ id, kind, at, note }) => {

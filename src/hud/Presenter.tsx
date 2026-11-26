@@ -8,8 +8,8 @@ import { MiniMap } from './MiniMap'
 type Action = { label: string; command?: Command; focus?: Focus; primary?: boolean }
 const sections = [
   { title: 'World', icon: Binoculars, actions: [
-    { label: 'Mountain Overview', focus: 'world' }, { label: 'Focus 1E', focus: '1E' }, { label: 'Focus 2L', focus: '2L' },
-    { label: 'Focus 3MH', focus: '3MH' }, { label: 'Focus Vehicle', focus: 'vehicle' }, { label: 'Focus Rockfall', focus: 'rockfall' },
+    { label: 'Mountain Overview', focus: 'world' }, { label: 'Focus NODE-01', focus: 'NODE-01' }, { label: 'Focus NODE-02', focus: 'NODE-02' },
+    { label: 'Focus GW-01', focus: 'GW-01' }, { label: 'Focus Vehicle', focus: 'vehicle' }, { label: 'Focus Rockfall', focus: 'rockfall' },
   ] },
   { title: 'Disaster', icon: TriangleAlert, actions: [
     { label: 'Trigger Rockfall', command: 'rockfall', focus: 'rockfall', primary: true },
@@ -17,19 +17,19 @@ const sections = [
     { label: 'Block Road', command: 'block', focus: 'rockfall' },
   ] },
   { title: 'Sensors', icon: Activity, actions: [
-    { label: 'Trigger Vibration', command: 'vibration', focus: '1E' },
-    { label: 'Generate Motion Alert', command: 'motion', focus: '1E' },
-    { label: 'Generate Hazard Event', command: 'generate', focus: '1E', primary: true },
+    { label: 'Trigger Vibration', command: 'vibration', focus: 'NODE-01' },
+    { label: 'Generate Motion Alert', command: 'motion', focus: 'NODE-01' },
+    { label: 'Generate Hazard Event', command: 'generate', focus: 'NODE-01', primary: true },
   ] },
   { title: 'RF network', icon: Radio, actions: [
-    { label: 'Send Packet from 1E', command: 'send', focus: 'packet', primary: true },
-    { label: 'Receive Packet at 2L', command: 'receiveRelay', focus: '2L' },
-    { label: 'Forward Packet from 2L', command: 'forward', focus: 'packet' },
-    { label: 'Receive Packet at 3MH', command: 'receiveGateway', focus: '3MH' },
+    { label: 'Send Packet from NODE-01', command: 'send', focus: 'packet', primary: true },
+    { label: 'Receive Packet at NODE-02', command: 'receiveRelay', focus: 'NODE-02' },
+    { label: 'Forward Packet from NODE-02', command: 'forward', focus: 'packet' },
+    { label: 'Receive Packet at GW-01', command: 'receiveGateway', focus: 'GW-01' },
   ] },
   { title: 'Gateway', icon: Cloud, actions: [
-    { label: 'Process Packet', command: 'process', focus: '3MH', primary: true },
-    { label: 'Validate Hazard', command: 'validate', focus: '3MH' },
+    { label: 'Process Packet', command: 'process', focus: 'GW-01', primary: true },
+    { label: 'Validate Hazard', command: 'validate', focus: 'GW-01' },
     { label: 'Sync Supabase', command: 'sync', focus: 'cloud' },
   ] },
   { title: 'Community', icon: Smartphone, actions: [
@@ -52,7 +52,7 @@ const sections = [
     { label: 'Move Vehicle to Alternate Route', command: 'driveRoute', focus: 'vehicle' },
   ] },
   { title: 'Internet', icon: Antenna, actions: [
-    { label: 'Internet OFF', command: 'offline', focus: '3MH' },
+    { label: 'Internet OFF', command: 'offline', focus: 'GW-01' },
     { label: 'Internet ON', command: 'online', focus: 'cloud' },
     { label: 'Retry Sync', command: 'retry', focus: 'cloud' },
   ] },

@@ -34,7 +34,7 @@ export function DriveMarkers() {
           <Box size={[.15, .96, .16]} position={[0, .47, 0]} color="#383b32" />
           <Box size={[.23, .24, .19]} position={[0, .95, 0]} color={color} glow />
         </group>)}
-        {id !== 'junction' && <GateLabel label={finish ? 'BYPASS EXIT' : id === 'rockfall' ? 'ROCKFALL WATCH ZONE' : 'FIELD SENSOR CHECKPOINT'} color={color} icon={finish ? Flag : TriangleAlert} />}
+        {id !== 'junction' && <GateLabel label={finish ? 'BYPASS EXIT' : id === 'rockfall' ? 'LANDSLIDE LOOKOUT' : 'NODE-01 CHECKPOINT'} color={color} icon={finish ? Flag : TriangleAlert} />}
       </group>
     })}
     {rockfall && <group position={ROADBLOCK.point} rotation-y={ROADBLOCK.yaw}>

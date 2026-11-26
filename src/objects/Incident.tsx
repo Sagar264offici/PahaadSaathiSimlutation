@@ -1,14 +1,14 @@
 import { Html } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { TriangleAlert } from 'lucide-react'
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { Color, DoubleSide, Group, IcosahedronGeometry, InstancedBufferAttribute, InstancedMesh, Object3D, PlaneGeometry, Vector3 } from 'three'
 import { clock, useGame, type Quality } from '../game/GameEngine'
 import { roadIsBlocked } from '../game/Scenario'
 import { phase } from '../game/Timeline'
 import { randomSeed } from '../world/geometry'
 import { Box } from '../world/Infrastructure'
-import { closurePoint, closureStart, mainRoad, node } from '../world/layout'
+import { closurePoint, closureStart, elevationAt, mainRoad, node, slope } from '../world/layout'
 import { fragmentPose, fragments } from '../world/rockfall'
 
 const barrierAt = mainRoad.getPointAt(closureStart + .007)
@@ -26,7 +26,7 @@ rockGeometry.computeVertexNormals()
 
 function Dust({ quality }: { quality: Quality }) {
   const mesh = useRef<InstancedMesh>(null)
-  const count = quality === 'High' ? 56 : quality === 'Medium' ? 39 : 22
+  const count = quality === 'High' ? 60 : quality === 'Medium' ? 44 : 26
   const { motes, geometry, alpha } = useMemo(() => {
     const rng = randomSeed(77390)
     const geometry = new PlaneGeometry(2, 2)
@@ -34,24 +34,30 @@ function Dust({ quality }: { quality: Quality }) {
     geometry.setAttribute('aOpacity', alpha)
     const motes = Array.from({ length: count }, (_, i) => {
       const rock = fragments[9 + i % 9]
-      return { at: rock.impact.clone().lerp(rock.end, rng() * .55),
-        delay: rock.delay + rock.fall - .28 + rng() * 1.45,
-        life: 5.1 + rng() * 3.5, dx: -2 - rng() * 11, dz: 3 + rng() * 10,
-        size: 1.4 + rng() * 2.65, opacity: .29 + rng() * .28 }
+      const upper = i % 4 !== 0
+      const at = upper ? rock.start.clone().lerp(rock.impact, .09 + rng() * .67) : rock.impact.clone().lerp(rock.end, rng() * .65)
+      at.y = upper ? elevationAt(at.x, at.z) : at.y
+      return {
+        at,
+        delay: upper ? rock.delay - .25 + rng() * 2.75 : rock.delay + rock.fall - .28 + rng() * 1.45,
+        life: 6.3 + rng() * 3.3, dx: -4 - rng() * 13, dz: 2.0 + rng() * 11,
+        size: upper ? 2.3 + rng() * 3.2 : 1.9 + rng() * 3.3, opacity: .29 + rng() * .26,
+      }
     })
     return { motes, geometry, alpha }
   }, [count])
+  useEffect(() => () => geometry.dispose(), [geometry])
   useFrame(() => {
     const rockAt = useGame.getState().scenario.rockAt
     if (!mesh.current) return
     const t = rockAt === null ? -1 : clock.time - rockAt
-    mesh.current.visible = t >= 3 && t <= 17.5
+    mesh.current.visible = t >= 1.7 && t <= 18
     if (!mesh.current.visible) return
     motes.forEach((mote, i) => {
       const u = phase(t, mote.delay, mote.delay + mote.life)
       const drift = 1 - (1 - u) ** 2
       const size = mote.size * (.36 + drift * 1.92)
-      dummy.position.set(mote.at.x + drift * mote.dx, mote.at.y + .9 + Math.sin(u * Math.PI * .76) * 3.75, mote.at.z + drift * mote.dz)
+      dummy.position.set(mote.at.x + drift * mote.dx, mote.at.y + .9 + Math.sin(u * Math.PI * .72) * 5.2, mote.at.z + drift * mote.dz)
       dummy.rotation.set(0, 0, 0)
       dummy.scale.set(size * 1.35, size * .70, 1)
       dummy.updateMatrix()
@@ -89,13 +95,17 @@ export function Incident({ quality }: { quality: Quality }) {
   const rocks = useRef<InstancedMesh>(null)
   const rings = useRef<Group>(null)
   const last = useRef<number | null>(null)
+  const second = useGame((state) => state.second)
   const focus = useGame((state) => state.focus)
   const control = useGame((state) => state.control)
+  const rockAt = useGame((state) => state.scenario.rockAt)
   const blocked = useGame((state) => roadIsBlocked(state.scenario))
   const closed = useGame((state) => state.scenario.verification === 'Confirmed closure')
   const settled = useGame((state) => state.scenario.settled)
   const blockedByBarrier = useGame((state) => state.scenario.barrier)
-  const incident = useGame((state) => state.scenario.rockAt !== null)
+  const incident = rockAt !== null
+  const establishing = control === 'auto' && second >= 13 && second < 33
+  const surveying = control === 'drive' && rockAt !== null && second < rockAt + 11 && focus === 'vehicle'
   useLayoutEffect(() => {
     const mesh = rocks.current
     if (!mesh) return
@@ -111,7 +121,7 @@ export function Incident({ quality }: { quality: Quality }) {
         fragments.forEach((rock, i) => {
           const turn = fragmentPose(rock, age, p)
           dummy.position.copy(p)
-          const latched = i >= 9 && i <= 17
+          const latched = rock.slab
           const loose = age >= rock.delay
           const scale = latched || loose ? rock.size : .00001
           if (latched) {
@@ -119,7 +129,7 @@ export function Incident({ quality }: { quality: Quality }) {
             dummy.position.x += tremor
             dummy.position.y += tremor - (1 - phase(age, rock.delay, rock.delay + .45)) * rock.size * .37
           }
-          dummy.scale.set(scale * (1.13 + i % 4 * .06), scale * .94, scale * (1 + i % 3 * .12))
+          dummy.scale.set(scale * (1.13 + i % 4 * .09), scale * (rock.slab ? .78 : .94), scale * (1 + i % 3 * .15))
           dummy.rotation.set(i * 2.17 + rock.turn * turn, i * 1.39 + turn * .81, i * .88 + rock.turn * turn * .63)
           dummy.updateMatrix()
           rocks.current!.setMatrixAt(i, dummy.matrix)
@@ -139,10 +149,16 @@ export function Incident({ quality }: { quality: Quality }) {
   function inspect() { useGame.getState().inspect('rockfall') }
   return <>
     <instancedMesh ref={rocks} args={[rockGeometry, undefined, fragments.length]} frustumCulled={false}
-      castShadow={quality !== 'Low'} receiveShadow onClick={(e) => { if (control === 'presenter' && e.delta < 5) { e.stopPropagation(); inspect() } }}>
+      castShadow={quality !== 'Low'} receiveShadow onClick={(e) => { if (control !== 'auto' && e.delta < 5) { e.stopPropagation(); inspect() } }}>
       <meshLambertMaterial flatShading />
     </instancedMesh>
     <Dust quality={quality} />
+    {(establishing || surveying) && <Html position={[slope.x + 4, elevationAt(slope.x + 4, slope.z) + 9, slope.z]} center pointerEvents="none" zIndexRange={[14, 10]}>
+      <div className="world-tag warning-tag"><TriangleAlert size={15} />{incident ? 'LANDSLIDE · FAR SLOPE' : 'EXPOSED MOUNTAINSIDE'}</div>
+    </Html>}
+    {establishing && !incident && <Html position={[node.x, node.y + 3, node.z]} center pointerEvents="none" zIndexRange={[14, 10]}>
+      <div className="world-tag">NODE-01 · SLOPE MONITORING</div>
+    </Html>}
     <group ref={rings} position={node.clone().add(new Vector3(0, .29, 0))} visible={false}>
       {[0, 1, 2].map((i) => <mesh key={i} rotation-x={-Math.PI / 2}>
         <ringGeometry args={[.958, 1, 36]} /><meshBasicMaterial color="#ffc470" transparent opacity={.63} depthWrite={false} />
@@ -150,9 +166,9 @@ export function Incident({ quality }: { quality: Quality }) {
     </group>
     {blocked && (control === 'auto' || focus === 'rockfall' || focus === 'vehicle') &&
       <Html position={closurePoint.clone().add(new Vector3(0, 5, 0))} center pointerEvents="none" zIndexRange={[15, 10]}>
-        <div className={`world-tag warning-tag ${closed ? 'is-closed' : ''}`}><TriangleAlert size={16} /><span>{closed ? 'CONFIRMED ROAD CLOSURE' : settled ? 'MAJOR ROCKFALL · ROAD COMPLETELY BLOCKED' : 'PRIMARY ROAD BLOCKED'}</span></div>
+        <div className={`world-tag warning-tag ${closed ? 'is-closed' : ''}`}><TriangleAlert size={16} /><span>{closed ? 'CONFIRMED ROAD CLOSURE' : settled ? 'LANDSLIDE DEBRIS · BOTH LANES BLOCKED' : 'PRIMARY ROAD BLOCKED'}</span></div>
       </Html>}
-    {control === 'presenter' && !incident && <mesh position={closurePoint.clone().add(new Vector3(0, 1, 0))} onClick={(e) => {
+    {control !== 'auto' && !incident && <mesh position={closurePoint.clone().add(new Vector3(0, 1, 0))} onClick={(e) => {
       if (e.delta < 5) { e.stopPropagation(); inspect() }
     }}>
       <boxGeometry args={[9, 2, 7]} /><meshBasicMaterial transparent opacity={0} depthWrite={false} />

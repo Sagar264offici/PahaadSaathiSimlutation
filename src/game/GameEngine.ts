@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { driveIncident, newDrive, stepDrive, type DriveState } from './Drive'
+import { driveIncident, driveMission, newDrive, stepDrive, type DriveState } from './Drive'
 import { clearDriveInput, readDriveInput } from './DrivingInput'
 import { advanceScenario, applyCommand, initialScenario, type Command, type Focus, type ReportCategory, type Scenario } from './Scenario'
 import { applyTimeline, CHAPTERS, cueIndex, CUES, DURATION, scenarioAt, STAGES } from './Timeline'
@@ -19,7 +19,7 @@ const settings = (() => {
 export const clock = { time: 0, idle: 0 }
 export const driving = { frame: newDrive() }
 let telemetryTick = -1
-const prototypeFocus: readonly Focus[] = ['1E', '2L', '3MH', 'packet', 'cloud', 'community']
+const prototypeFocus: readonly Focus[] = ['NODE-01', 'NODE-02', 'GW-01', 'packet', 'cloud', 'community']
 
 type Game = {
   mode: Mode
@@ -34,6 +34,7 @@ type Game = {
   scenario: Scenario
   focus: Focus
   focusVersion: number
+  cameraOverride: Focus | null
   start: (control?: Session) => void
   menu: () => void
   togglePause: () => void
@@ -42,16 +43,26 @@ type Game = {
   setSpeed: (speed: number) => void
   command: (action: Command, focus?: Focus) => void
   inspect: (focus: Focus) => void
+  setCameraOverride: (focus: Focus | null) => void
+  interact: () => void
   editReport: (changes: { reportCategory?: ReportCategory; reportDescription?: string }) => void
   seek: (time: number) => void
   chapter: (direction: number) => void
+}
+
+export function worldFocus(game: Game) {
+  return game.control === 'auto' ? game.cameraOverride ?? STAGES[game.stage].focus : game.focus
+}
+
+export function regionalView(game: Game) {
+  return game.cameraOverride !== null ? game.cameraOverride === 'production' : game.scenario.architecture === 'production'
 }
 
 export const useGame = create<Game>((set, get) => ({
   mode: 'menu', control: 'auto', stage: 0, second: 0, run: 0, speed: 1,
   sound: settings.sound !== false,
   quality: ['High', 'Medium', 'Low'].includes(settings.quality) ? settings.quality : defaultQuality,
-  drive: driving.frame, scenario: initialScenario(), focus: 'world', focusVersion: 0,
+  drive: driving.frame, scenario: initialScenario(), focus: 'world', focusVersion: 0, cameraOverride: null,
   start(control = 'drive') {
     clock.time = control === 'presenter' ? CUES.approach : 0
     const game = get()
@@ -60,10 +71,10 @@ export const useGame = create<Game>((set, get) => ({
     telemetryTick = -1
     set({
       mode: 'running', control, stage: 0, second: Math.floor(clock.time),
-      run: game.run + 1, drive: driving.frame, scenario: initialScenario(), focus: control === 'drive' ? 'vehicle' : 'world', focusVersion: game.focusVersion + 1,
+      run: game.run + 1, cameraOverride: null, drive: driving.frame, scenario: initialScenario(), focus: control === 'drive' ? 'vehicle' : 'world', focusVersion: game.focusVersion + 1,
     })
   },
-  menu() { clearDriveInput(); clock.time = 0; set({ mode: 'menu', stage: 0, second: 0, scenario: initialScenario(), focus: 'world' }) },
+  menu() { clearDriveInput(); clock.time = 0; set({ mode: 'menu', stage: 0, second: 0, scenario: initialScenario(), focus: 'world', cameraOverride: null }) },
   togglePause() {
     const { mode } = get()
     if (mode === 'running' || mode === 'paused') {
@@ -88,10 +99,24 @@ export const useGame = create<Game>((set, get) => ({
   },
   inspect(focus) {
     const game = get()
-    if (game.control === 'presenter' && game.mode !== 'menu') {
-      const scenario = prototypeFocus.includes(focus) ? applyCommand(game.scenario, 'prototype', clock.time) : game.scenario
-      set({ scenario, focus, focusVersion: game.focusVersion + 1 })
-    }
+    if (game.mode === 'menu') return
+    if (game.control === 'auto') { game.setCameraOverride(focus); return }
+    const scenario = prototypeFocus.includes(focus) ? applyCommand(game.scenario, 'prototype', clock.time) : game.scenario
+    if (game.control === 'drive') clearDriveInput()
+    set({ scenario, focus, focusVersion: game.focusVersion + 1 })
+  },
+  setCameraOverride(focus) {
+    set({ cameraOverride: focus, focusVersion: get().focusVersion + 1 })
+  },
+  interact() {
+    const game = get()
+    if (game.control !== 'drive' || game.mode !== 'running') return
+    const { action, focus } = driveMission(driving.frame, game.scenario)
+    if (!action || !focus) return
+    clearDriveInput()
+    driving.frame = { ...driving.frame, inspectedAt: { ...driving.frame.inspectedAt, [action]: clock.time } }
+    const scenario = driveIncident(game.scenario, driving.frame, clock.time)
+    set({ drive: driving.frame, focus, focusVersion: game.focusVersion + 1, scenario })
   },
   editReport(changes) {
     const game = get()
@@ -107,7 +132,7 @@ export const useGame = create<Game>((set, get) => ({
     set({
       mode: game.mode === 'complete' ? 'running' : game.mode,
       stage, second: Math.floor(target), scenario: scenarioAt(target),
-      focus: STAGES[stage].focus, focusVersion: game.focusVersion + 1,
+      focus: STAGES[stage].focus, cameraOverride: null, focusVersion: game.focusVersion + 1,
     })
   },
   chapter(direction) {
@@ -135,7 +160,7 @@ export function advance(delta: number) {
   if (game.control === 'drive') {
     let remaining = Math.min(delta, .15)
     let scenario = game.scenario
-    const input = readDriveInput()
+    const input = game.focus === 'vehicle' ? readDriveInput() : { throttle: 0, steer: 0, brake: true }
     while (remaining > .00001) {
       const step = Math.min(remaining, 1 / 60)
       clock.time += step

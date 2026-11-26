@@ -9,7 +9,7 @@ const { applyTimeline, CUES, DURATION, scenarioAt } = await vite.ssrLoadModule('
 const { fragmentPose, fragments } = await vite.ssrLoadModule('/src/world/rockfall.ts')
 const { Vector3 } = await import('three')
 const { vehicleAt } = await vite.ssrLoadModule('/src/world/layout.ts')
-const { newDrive, stepDrive, driveIncident, drivePosition, ROADBLOCK } = await vite.ssrLoadModule('/src/game/Drive.ts')
+const { newDrive, stepDrive, driveIncident, driveMission, drivePosition, ROADBLOCK } = await vite.ssrLoadModule('/src/game/Drive.ts')
 
 function issue(s, command, time) {
   const result = advanceScenario(s, time)
@@ -26,8 +26,8 @@ test('Auto playback and a single timeline seek produce the same ordered state', 
   assert.equal(played.verification, 'Confirmed closure')
   assert.equal(played.report, 'submitted')
   assert.equal(played.sync, 'complete')
-  assert.equal(played.packet.origin, '1E')
-  assert.equal(played.packet.sender, '2L')
+  assert.equal(played.packet.origin, 'NODE-01')
+  assert.equal(played.packet.sender, 'NODE-02')
   assert.equal(played.packet.hop, 1)
   assert.equal(played.packet.ttl, 7)
   assert.equal(played.turnAt, CUES.turn)
@@ -60,7 +60,7 @@ test('Confirmation requires both sources, review, metadata validation, and field
   assert.equal(roadIsBlocked(resolved), false)
 })
 
-test('The diagnostic is received offline and does not create a fake 1E event', () => {
+test('The diagnostic is received offline and does not create a fake NODE-01 event', () => {
   const offline = issue(initialScenario(), 'offline', 24)
   assert.equal(offline.sync, 'pending')
   const received = advanceScenario(offline, 35)
@@ -79,7 +79,7 @@ test('Retransmission keeps origin and sequence, and the gateway suppresses the d
   ]) state = issue(state, command, time)
   state = advanceScenario(state, 126)
   assert.equal(state.duplicate, 'Suppressed')
-  assert.deepEqual(state.seen, ['1E/00421'])
+  assert.deepEqual(state.seen, ['NODE-01/PS-001'])
   assert.equal(state.sensorInCloud, true)
 })
 
@@ -137,6 +137,11 @@ test('The SUV crosses the physical boxes in order, stops at the barrier and can 
   let car = newDrive()
   let scenario = initialScenario()
   let time = 0
+  function perform(action) {
+    assert.equal(driveMission(car, scenario).action, action)
+    car = { ...car, inspectedAt: { ...car.inspectedAt, [action]: time } }
+    scenario = driveIncident(scenario, car, time)
+  }
   function run(duration, steer = 0, throttle = 1, brake = false) {
     for (let i = 0; i < duration * 60; i++) {
       time += 1 / 60
@@ -150,7 +155,24 @@ test('The SUV crosses the physical boxes in order, stops at the barrier and can 
   assert.equal(car.route, 'ridge')
   assert.ok(drivePosition(car).distanceTo(ROADBLOCK.point) > 3)
   assert.equal(scenario.routeAt, null)
-  run(23)
+  assert.equal(scenario.packet, null)
+  perform('station')
+  run(1)
+  assert.equal(scenario.packet, null)
+  assert.equal(driveMission(car, scenario).title, 'Monitor the LoRa module')
+  run(3)
+  assert.equal(scenario.packet.step, 'ready')
+  perform('monitor')
+  perform('track')
+  run(15)
+  assert.equal(scenario.packet.step, 'at-GW-01')
+  perform('gateway')
+  run(12)
+  assert.equal(scenario.verification, 'Under review')
+  assert.equal(scenario.routeAt, null)
+  perform('evidence')
+  assert.equal(scenario.verification, 'Corroborated')
+  perform('confirm')
   assert.equal(scenario.verification, 'Confirmed closure')
   assert.notEqual(scenario.routeAt, null)
   assert.equal(car.route, 'ridge')
@@ -158,7 +180,7 @@ test('The SUV crosses the physical boxes in order, stops at the barrier and can 
   assert.equal(car.route, 'bypass')
   assert.deepEqual(car.gates, ['rockfall', 'sensors', 'junction', 'finish'])
   assert.equal(car.speed, 0)
-  assert.equal(scenario.log.filter(({ text }) => text.includes('TREMOR')).length, 1)
+  assert.equal(scenario.log.filter(({ text }) => text.includes('LANDSLIDE INITIATED')).length, 1)
   assert.equal(scenario.log.filter(({ text }) => text.includes('ROUTE UPDATED')).length, 1)
 })
 

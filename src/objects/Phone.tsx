@@ -2,9 +2,9 @@ import { RoundedBox } from '@react-three/drei/core/RoundedBox.js'
 import { useFrame } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import { CanvasTexture, Group, SRGBColorSpace } from 'three'
-import { clock, useGame } from '../game/GameEngine'
+import { clock, regionalView, useGame, worldFocus } from '../game/GameEngine'
 import { OBSERVATION, REPORT_ID, type Scenario } from '../game/Scenario'
-import { CUES, STAGES } from '../game/Timeline'
+import { CUES } from '../game/Timeline'
 import { Box } from '../world/Infrastructure'
 import { closurePoint, phone, witness } from '../world/layout'
 import { bypassSvg, closureSvg, contourSvg, mapPoint, riverSvg, roadSvg } from '../world/map'
@@ -77,8 +77,8 @@ function createDisplay() {
       block(19, 475, 376, 249, 23, '#fffef9')
       label('SIMULATED ROAD ALERT', 40, 515, 16, 760, gold)
       label('Confirmed road closure', 40, 560, 28, 780, dark)
-      label('Both lanes blocked by rockfall.', 40, 602, 18, 550, dark)
-      label(OBSERVATION.zone + '  ·  3MH', 40, 636, 16, 700, green)
+      label('Landslide debris blocks both lanes.', 40, 602, 18, 550, dark)
+      label(OBSERVATION.zone + '  ·  GW-01', 40, 636, 16, 700, green)
       block(40, 658, 334, 40, 9, green)
       label('HAZARD MAP', 150, 685, 16, 740, '#fff')
     } else if (report === 'draft' || report === 'sending' || report === 'submitted') {
@@ -133,7 +133,7 @@ export function Witness() {
     rig.current.rotation.y = s.report === 'none' ? -.54 : -.27 + Math.sin(clock.time * .8) * .07
   })
   return <group ref={rig} position={witness} onClick={(e) => {
-    if (useGame.getState().control === 'presenter' && e.delta < 5) { e.stopPropagation(); useGame.getState().command('app', 'community') }
+    if (useGame.getState().control !== 'auto' && e.delta < 5) { e.stopPropagation(); useGame.getState().inspect('community') }
   }}>
     {[-.15, .15].map((x) => <group key={x}>
       <Box size={[.21, .7, .22]} position={[x, .46, 0]} color="#35443e" shadow />
@@ -156,9 +156,9 @@ export function Phone() {
     if (!mesh.current) return
     const game = useGame.getState()
     const { scenario, mode } = game
-    const focus = game.control === 'presenter' ? game.focus : STAGES[game.stage].focus
+    const focus = worldFocus(game)
     const time = clock.time
-    mesh.current.visible = mode !== 'menu' && scenario.architecture === 'prototype' &&
+    mesh.current.visible = mode !== 'menu' && !regionalView(game) &&
       (focus === 'community' || (game.control === 'auto' && time >= CUES.overview))
     if (!mesh.current.visible) return
     mesh.current.position.copy(phone).y += Math.sin(time * 1.18) * .09
@@ -171,7 +171,7 @@ export function Phone() {
     display.draw(scenario.report, scenario.alert, timestamp, scenario.routeAt !== null, scenario.reportCategory, scenario.reportDescription)
   })
   return <group ref={mesh} position={phone} visible={false} onClick={(e) => {
-    if (useGame.getState().control === 'presenter' && e.delta < 5) { e.stopPropagation(); useGame.getState().command('app', 'community') }
+    if (useGame.getState().control !== 'auto' && e.delta < 5) { e.stopPropagation(); useGame.getState().inspect('community') }
   }}>
     <RoundedBox args={[2.53, 4.85, .265]} radius={.18} smoothness={3}>
       <meshStandardMaterial color="#212e2b" roughness={.42} metalness={.45} />

@@ -1,10 +1,11 @@
 import { Matrix3, Matrix4, Vector3 } from 'three'
 import { OBB } from 'three/addons/math/OBB.js'
 import { bypass, junctionU, mainRoad } from '../world/layout'
-import { advanceScenario, applyCommand, FLIGHT, type Command, type Scenario } from './Scenario'
+import { advanceScenario, applyCommand, FLIGHT, type Command, type Focus, type Scenario } from './Scenario'
 
 type Route = 'ridge' | 'bypass'
 export type Gate = 'rockfall' | 'sensors' | 'junction' | 'finish'
+export type DriveAction = 'station' | 'monitor' | 'track' | 'gateway' | 'evidence' | 'confirm'
 export type DriveInput = { throttle: number; brake: boolean; steer: number }
 export type DriveState = {
   route: Route
@@ -14,6 +15,7 @@ export type DriveState = {
   steering: number
   odometer: number
   gates: readonly Gate[]
+  inspectedAt: Readonly<Partial<Record<DriveAction, number>>>
 }
 
 const roads = { ridge: mainRoad, bypass }
@@ -22,7 +24,7 @@ const junction = junctionU * lengths.ridge
 export const TOP_SPEED = 19
 
 export function newDrive(): DriveState {
-  return { route: 'ridge', distance: lengths.ridge * .045, lane: 0, speed: 0, steering: 0, odometer: 0, gates: [] }
+  return { route: 'ridge', distance: lengths.ridge * .045, lane: 0, speed: 0, steering: 0, odometer: 0, gates: [], inspectedAt: {} }
 }
 
 const tangent = new Vector3()
@@ -50,8 +52,8 @@ function roadBox(route: Route, u: number, halfWidth: number, halfDepth: number) 
 }
 
 export const DRIVE_GATES = [
-  { id: 'rockfall', route: 'ridge', ...roadBox('ridge', .348, 3.35, 3.2) },
-  { id: 'sensors', route: 'ridge', ...roadBox('ridge', .411, 3.35, 3.3) },
+  { id: 'rockfall', route: 'ridge', ...roadBox('ridge', .219, 3.35, 3.2) },
+  { id: 'sensors', route: 'ridge', ...roadBox('ridge', .449, 3.35, 3.3) },
   { id: 'junction', route: 'ridge', ...roadBox('ridge', .478, 3.4, 3.2) },
   { id: 'finish', route: 'bypass', ...roadBox('bypass', .94, 3.35, 3.35) },
 ] as const
@@ -111,25 +113,64 @@ export function stepDrive(state: DriveState, input: DriveInput, blocked: boolean
   return next
 }
 
+type Mission = {
+  number: number
+  title: string
+  cue: string
+  action?: DriveAction
+  label?: string
+  focus?: Focus
+}
+
+export function driveMission(drive: DriveState, scenario: Scenario): Mission {
+  const has = (action: DriveAction) => drive.inspectedAt[action] !== undefined
+  if (!drive.gates.includes('rockfall')) return { number: 1, title: 'Identify the hazard', cue: 'Drive through the lookout checkpoint and watch the slope across the valley.' }
+  if (!has('station')) return {
+    number: 2, title: 'Inspect the sensor station', cue: drive.gates.includes('sensors') ? 'Inspect the live sensor inputs at NODE-01.' : 'Follow the road to the NODE-01 checkpoint.',
+    ...(drive.gates.includes('sensors') && { action: 'station', label: 'Inspect NODE-01', focus: 'NODE-01' }),
+  }
+  if (!has('monitor')) return {
+    number: 3, title: 'Monitor the LoRa module',
+    cue: scenario.packet?.step === 'ready' ? 'The ESP32-C3 has prepared a warning packet. Send it over the separate LoRa module.' : 'Watch the ESP32-C3 process the motion and vibration inputs.',
+    ...(scenario.packet?.step === 'ready' && { action: 'monitor', label: 'Transmit warning', focus: 'NODE-01' }),
+  }
+  if (!has('track')) return { number: 4, title: 'Track the packet', cue: 'Follow the two simulated LoRa hops through NODE-02.', action: 'track', label: 'Track PS-001', focus: 'packet' }
+  if (!has('gateway')) {
+    const received = scenario.packet?.step === 'at-GW-01' || scenario.packet?.step === 'processing' || scenario.packet?.step === 'processed'
+    return { number: 5, title: 'Inspect the gateway', cue: received ? 'GW-01 has the packet. Inspect the receiver and Tinker Board.' : 'Wait for NODE-02 to forward the warning to GW-01.',
+      ...(received && { action: 'gateway', label: 'Inspect GW-01', focus: 'GW-01' }),
+    }
+  }
+  if (!has('evidence')) return {
+    number: 6, title: 'Verify the hazard',
+    cue: scenario.correlated ? 'Compare the field warning and the witness report in Supabase.' : 'Wait for the sensor record and community report to reach Supabase.',
+    ...(scenario.correlated && { action: 'evidence', label: 'Compare evidence', focus: 'cloud' }),
+  }
+  if (!has('confirm')) return {
+    number: 6, title: 'Verify the hazard', cue: 'The evidence is corroborated. Confirm the simulated field closure.',
+    ...(scenario.verification === 'Corroborated' && { action: 'confirm', label: 'Confirm closure', focus: 'vehicle' }),
+  }
+  return { number: 7, title: 'Find an alternative route', cue: drive.route === 'bypass' ?
+    'Drive along the illustrative bypass to the exit checkpoint.' : 'Return to the SUV and hold left while accelerating at the junction.' }
+}
+
 export function driveIncident(scenario: Scenario, drive: DriveState, at: number) {
   let next = advanceScenario(scenario, at)
   const run = (command: Command) => { next = applyCommand(next, command, at) }
+  const inspected = drive.inspectedAt
   if (!drive.gates.includes('rockfall')) return next
   if (next.rockAt === null) run('rockfall')
   if (!drive.gates.includes('sensors')) return next
 
-  // Spatial gates authorize the work. The shared scenario clocks only the reactions and packet travel.
-  if (next.vibrationAt === null) {
-    run('vibration')
-    run('motion')
-    run('generate')
-    run('send')
-  }
+  if (next.vibrationAt === null) run('vibration')
+  if (!next.motion && next.vibrationAt !== null && at >= next.vibrationAt + .65) run('motion')
+  if (next.motion && next.packet === null && inspected.station !== undefined && at >= inspected.station + 3) run('generate')
+  if (next.packet?.step === 'ready' && inspected.monitor !== undefined) run('send')
   const packet = next.packet
-  if (packet?.step === 'sending-1E' && at >= packet.at + FLIGHT) run('receiveRelay')
-  if (packet?.step === 'at-2L' && at >= packet.at + .7) run('forward')
-  if (packet?.step === 'forwarding-2L' && at >= packet.at + FLIGHT) run('receiveGateway')
-  if (packet?.step === 'at-3MH' && at >= packet.at + .4) run('process')
+  if (packet?.step === 'sending-NODE-01' && at >= packet.at + FLIGHT) run('receiveRelay')
+  if (packet?.step === 'at-NODE-02' && at >= packet.at + 1.5) run('forward')
+  if (packet?.step === 'forwarding-NODE-02' && at >= packet.at + FLIGHT) run('receiveGateway')
+  if (packet?.step === 'at-GW-01' && inspected.gateway !== undefined) run('process')
   if (packet?.step === 'processed') {
     if (!next.validated) run('validate')
     if (next.sync === 'idle') run('sync')
@@ -141,8 +182,8 @@ export function driveIncident(scenario: Scenario, drive: DriveState, at: number)
   if (next.sensorInCloud && next.report === 'submitted') {
     if (next.verification === 'Reported') run('review')
     if (!next.correlated) run('correlate')
-    if (next.verification === 'Under review') run('corroborate')
-    if (drive.gates.includes('junction') && next.verification === 'Corroborated') {
+    if (next.verification === 'Under review' && inspected.evidence !== undefined) run('corroborate')
+    if (next.verification === 'Corroborated' && inspected.confirm !== undefined) {
       run('confirm')
       run('alert')
     }

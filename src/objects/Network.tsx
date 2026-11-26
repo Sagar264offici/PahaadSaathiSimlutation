@@ -3,9 +3,9 @@ import { useFrame } from '@react-three/fiber'
 import { Database, Radio } from 'lucide-react'
 import { useRef } from 'react'
 import { Group, Mesh, MeshBasicMaterial, RingGeometry, type Vector3, type CatmullRomCurve3 } from 'three'
-import { clock, useGame } from '../game/GameEngine'
+import { clock, regionalView, useGame, worldFocus } from '../game/GameEngine'
 import { CLOUD_WORK, COMMUNITY_FLIGHT, FLIGHT } from '../game/Scenario'
-import { CUES, phase, STAGES } from '../game/Timeline'
+import { CUES, phase } from '../game/Timeline'
 import { cloud, communityUplink, downlink, firstHop, radioFlight, receiver, relayRadio, secondHop, transmitter, uplink } from '../world/layout'
 
 function Packet({ path, start, duration, color }: { path: CatmullRomCurve3; start: number; duration: number; color: string }) {
@@ -60,14 +60,16 @@ export function Network() {
   const orbit = useRef<Group>(null)
   const rfLabel = useRef<Group>(null)
   const scenario = useGame((state) => state.scenario)
-  const focus = useGame((state) => state.control === 'presenter' ? state.focus : STAGES[state.stage].focus)
+  const focus = useGame(worldFocus)
+  const regional = useGame(regionalView)
   const overview = useGame((state) => state.control === 'auto' && state.second >= CUES.overview)
   const alertAt = useGame((state) => state.control === 'auto' && state.scenario.alert ? CUES.alert : null)
   const packet = scenario.packet
   const rf = radioFlight(scenario)
-  const firstActive = packet?.step === 'sending-1E'
-  const secondActive = packet?.step === 'forwarding-2L'
+  const firstActive = packet?.step === 'sending-NODE-01'
+  const secondActive = packet?.step === 'forwarding-NODE-02'
   const probe = scenario.probeAt !== null && !scenario.probeReceived
+  const showPacketPath = focus === 'packet' && packet !== null
   const hubVisible = focus === 'cloud' || scenario.sync === 'syncing' || scenario.report === 'sending' || overview
 
   useFrame(() => {
@@ -78,11 +80,11 @@ export function Network() {
       rfLabel.current.position.y += 2.2
     }
   })
-  if (scenario.architecture === 'production') return null
+  if (regional) return null
   return <>
-    {(firstActive || packet?.step === 'at-2L' || probe || overview) &&
+    {(firstActive || packet?.step === 'at-NODE-02' || probe || overview || showPacketPath) &&
       <Line points={first} color="#81eaca" lineWidth={overview ? 2.4 : 2.2} transparent opacity={.79} dashed dashSize={2.2} gapSize={1.5} />}
-    {(secondActive || packet?.step === 'at-3MH' || probe || overview) &&
+    {(secondActive || packet?.step === 'at-GW-01' || probe || overview || showPacketPath) &&
       <Line points={second} color="#91e5f1" lineWidth={overview ? 2.4 : 2.2} transparent opacity={.85} dashed dashSize={2.0} gapSize={1.5} />}
     {(scenario.sync === 'pending' || !scenario.internet) &&
       <Line points={upPoints.slice(0, 19)} color="#d8a465" lineWidth={2.1} dashed dashSize={.85} gapSize={1} />}
@@ -91,12 +93,12 @@ export function Network() {
     {(scenario.report === 'sending' || overview || (alertAt !== null && focus === 'community')) &&
       <Line points={phonePoints} color="#f1c786" lineWidth={2.25} transparent opacity={.83} dashed dashSize={1.46} gapSize={.98} />}
     {(firstActive || probe) && <Signal at={transmitter} />}
-    {(firstActive || secondActive || probe || packet?.step === 'at-2L') && <Signal at={relayRadio} />}
-    {(secondActive || probe || packet?.step === 'at-3MH') && <Signal at={receiver} />}
+    {(firstActive || secondActive || probe || packet?.step === 'at-NODE-02') && <Signal at={relayRadio} />}
+    {(secondActive || probe || packet?.step === 'at-GW-01') && <Signal at={receiver} />}
     {rf && <>
       <Packet path={rf.path} start={rf.from} duration={FLIGHT} color={firstActive ? '#7ef6dd' : '#86e5fb'} />
       <group ref={rfLabel}><Html position={[0, 0, 0]} center zIndexRange={[14, 11]} pointerEvents="none">
-        <div className="world-tag rf-tag"><Radio size={14} />{firstActive ? '1E → 2L' : '2L → 3MH'} · SIMULATED HC-12</div>
+        <div className="world-tag rf-tag"><Radio size={14} />{firstActive ? 'NODE-01 → NODE-02' : 'NODE-02 → GW-01'} · SIMULATED LoRa</div>
       </Html></group>
     </>}
     {probe && scenario.probeAt !== null && <>

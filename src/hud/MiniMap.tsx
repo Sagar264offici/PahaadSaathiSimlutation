@@ -45,13 +45,13 @@ export function MiniMap({ inline = false }: { inline?: boolean }) {
       <circle cx={nx} cy={ny} r="2.5" fill="#f6c77f" />
       <circle cx={rx} cy={ry} r="3" fill="#92cbd8" stroke="#243d38" strokeWidth="1" />
       {mode !== 'menu' && <g fill="#edf1db" fontSize="7.2" fontFamily="monospace">
-        <text x={nx + 5} y={ny - 6}>1E</text><text x={rx - 4} y={ry + 10}>2L</text><text x={gx - 17} y={gy - 6}>3MH</text>
+        <text x={nx + 5} y={ny - 6}>01</text><text x={rx - 4} y={ry + 10}>02</text><text x={gx - 17} y={gy - 6}>GW</text>
       </g>}
       <g transform={`translate(${vx} ${vy}) rotate(${rotation})`}>
         <circle r="7" fill="#142d28" />
         <path d="M0 -6 L4.8 4 L0 2.3 L-4.8 4 Z" fill="#f3efdf" />
       </g>
     </svg>
-    <div className="map-legend"><span><i /> Vehicle</span><span><i /> 1E / 2L</span><span><i /> 3MH</span></div>
+    <div className="map-legend"><span><i /> Vehicle</span><span><i /> Field nodes</span><span><i /> GW-01</span></div>
   </aside>
 }

@@ -1,6 +1,6 @@
 import { CatmullRomCurve3, Vector3 } from 'three'
-import { FLIGHT, VEHICLE_AT_JUNCTION, type Scenario } from '../game/Scenario'
-import { phase, smooth } from '../game/Timeline'
+import { FLIGHT, type Scenario } from '../game/Scenario'
+import { CUES, phase, smooth } from '../game/Timeline'
 
 type XYZ = [number, number, number]
 export const spline = (points: XYZ[]) => new CatmullRomCurve3(points.map((p) => new Vector3(...p)), false, 'centripetal')
@@ -12,20 +12,32 @@ export const mainRoad = spline([
   [10, 50, -102], [43, 51, -109], [60, 52, -128],
 ])
 export const junctionU = 0.485
+export const startU = .045
+export const landslideDistance = 10
+export const landslideU = startU + landslideDistance / mainRoad.getLength()
 const junction = mainRoad.getPointAt(junctionU)
-const merge = mainRoad.getPointAt(0.805)
+const mergeU = .987
+const merge = mainRoad.getPointAt(mergeU)
 const incoming = mainRoad.getTangentAt(junctionU)
+const outgoing = mainRoad.getTangentAt(mergeU)
 export const bypass = spline([
-  junction.toArray() as XYZ, junction.clone().addScaledVector(incoming, 6).toArray() as XYZ, [35, 37.4, -18],
-  [15, 37, -33], [-4, 38, -38], [-26, 41, -51], [-30, 42, -68], [-25, 45, -81], merge.toArray() as XYZ,
+  junction.toArray() as XYZ, junction.clone().addScaledVector(incoming, 4.2).toArray() as XYZ,
+  [38, 37, -16], [29, 36.5, -23], [19, 34.9, -22], [11, 33, -15], [9, 31, -3],
+  [3, 28.2, 11], [-16, 24, 19], [-37, 18, 33], [-48, 15, 48], [-61, 14, 59],
+  [-85, 18, 67], [-107, 26, 81], [-134, 35, 83], [-154, 40, 63], [-159, 48, 27],
+  [-158, 56, -20], [-152, 63, -63], [-130, 58, -105], [-109, 51, -144],
+  [-83, 42, -169], [-59, 37, -180], [-30, 38, -177], [-2, 42, -163], [26, 48, -151],
+  [38, 51, -136], [43, 51.6, -123], [48, 51.7, -118],
+  merge.clone().addScaledVector(outgoing, -6).toArray() as XYZ, merge.toArray() as XYZ,
 ])
+export const bypassDistance = Math.round(bypass.getLength())
 export const lodges: [number, number, number, number, string][] = [
   [42, 51, 1.12, .3, '#764b3b'], [46, 45, .82, -.23, '#59676a'], [27, 72, .79, .24, '#685847'],
   [-28, 37, 1.1, .25, '#8e5b43'], [-36, 24, .82, -.2, '#636962'], [-46, -44, .9, .3, '#745442'],
   [-56, -48, .73, -.22, '#627573'], [-33, -80, .69, -.15, '#775b48'],
 ]
 
-export const roadSamples = [...mainRoad.getSpacedPoints(460), ...bypass.getSpacedPoints(160)]
+export const roadSamples = [...mainRoad.getSpacedPoints(460), ...bypass.getSpacedPoints(520)]
 export const roadHalfWidth = 3.3
 export const closureStart = 0.57
 export const closureEnd = 0.68
@@ -57,12 +69,14 @@ export function elevationAt(x: number, z: number, near = nearestRoad(x, z)) {
   const eastRidge = 37 * Math.exp(-(((x - 95) / 39) ** 2 + ((z + 27) / 105) ** 2))
   const westRidge = 42 * Math.exp(-(((x + 143) / 50) ** 2 + ((z + 37) / 107) ** 2))
   const folds = 3.3 * Math.sin(x * 0.15 + z * 0.10) + 2.1 * Math.cos(z * 0.17 - x * 0.06) + 3.8 * Math.sin(z * 0.051 + x * 0.078)
-  const rockShelf = 15 * Math.exp(-(((x - slope.x) / 11) ** 2 + ((z - slope.z) / 15) ** 2))
+  const rockShelf = 23 * Math.exp(-(((x - slope.x - 4) / 13) ** 2 + ((z - slope.z) / 16) ** 2))
   const bank = smooth(phase(riverDistance, 2, 17))
   const natural = 2.7 + bank * (valley + northRise + eastRidge + westRidge + folds + rockShelf - 2.7)
   const gatewayBlend = 1 - smooth(phase(Math.hypot(x - gateway.x, z - gateway.z), 7, 18))
   const platform = natural + (gateway.y - 0.08 - natural) * gatewayBlend
-  let ground = near.elevation - .3 + (platform - near.elevation + .3) * smooth(phase(near.distance, 5.05, 13.8))
+  const riverClearance = 1 - smooth(phase(riverDistance, 4.6, 9))
+  const terrainBlend = Math.max(riverClearance, smooth(phase(near.distance, 4.75, 13.4)))
+  let ground = near.elevation - .34 + (platform - near.elevation + .34) * terrainBlend
   for (const pad of fieldPlatforms) {
     const distance = Math.hypot(x - pad.x, z - pad.z)
     const weight = (1 - smooth(phase(distance, 3.55, 8.5))) * smooth(phase(near.distance, 3.84, 5.55))
@@ -88,8 +102,8 @@ export const communityUplink = spline([...downlink.points].reverse().map((p) => 
 
 export function radioFlight(scenario: Scenario) {
   const packet = scenario.packet
-  if (packet?.step === 'sending-1E') return { path: firstHop, from: packet.at, to: packet.at + FLIGHT }
-  if (packet?.step === 'forwarding-2L') return { path: secondHop, from: packet.at, to: packet.at + FLIGHT }
+  if (packet?.step === 'sending-NODE-01') return { path: firstHop, from: packet.at, to: packet.at + FLIGHT }
+  if (packet?.step === 'forwarding-NODE-02') return { path: secondHop, from: packet.at, to: packet.at + FLIGHT }
   return null
 }
 
@@ -97,10 +111,10 @@ export type VehicleSample = { road: CatmullRomCurve3; u: number }
 
 export function vehicleAt(time: number, turnAt: number | null = null): VehicleSample {
   if (turnAt !== null && time >= turnAt) {
-    const moving = phase(time, turnAt, turnAt + 16.5)
-    return { road: bypass, u: .96 * smooth(moving) }
+    const moving = phase(time, turnAt, turnAt + CUES.detourDuration)
+    return { road: bypass, u: .985 * moving }
   }
-  const cruise = .04 + .281 * smooth(phase(time, 1, 22)) + .075 * smooth(phase(time, 18, 32))
-  const approaching = phase(time, 30, VEHICLE_AT_JUNCTION)
-  return { road: mainRoad, u: Math.min(junctionU, cruise + (junctionU - .396) * smooth(approaching)) }
+  if (time <= CUES.rockfall) return { road: mainRoad, u: startU + (landslideU - startU) * phase(time, CUES.drive, CUES.rockfall) ** 2 }
+  const approaching = smooth(phase(time, CUES.rockfall, CUES.turn))
+  return { road: mainRoad, u: landslideU + (junctionU - landslideU) * approaching }
 }

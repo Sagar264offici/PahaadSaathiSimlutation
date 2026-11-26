@@ -433,3 +433,34 @@ button:focus-visible { outline: 2px solid #fff5d8; outline-offset: 4px; }
   .hud-driving .mini-map { bottom: 153px; }
   .hud-driving .simulated-tag { display: none; }
 }
+
+.mode-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; width: min(36rem, 86vw); margin-top: 19px; }
+.mode-choice { display: grid; justify-items: start; gap: 7px; padding: 13px 14px; text-align: left; border: 1px solid #e6bd7394; background: #172c26e0; color: #fff1d8; }
+.mode-choice svg { color: #efc57e; }
+.mode-choice strong { font-size: .75rem; letter-spacing: .075em; }
+.mode-choice span { color: #cfdfce; font-size: .73rem; line-height: 1.35; }
+.mode-choice:hover { border-color: #ffe1a5; background: #354538; }
+.hud button:disabled { cursor: not-allowed; opacity: .64; }
+.drive-objective .drive-action { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 36px; margin-top: 11px; padding: 7px 10px; border: 1px solid #f1ce91; background: #edbf78; color: #1c3128; font-size: .78rem; font-weight: 700; }
+.drive-action kbd, .survey-camera kbd, .reset-view kbd { font: 600 .69rem var(--mono); padding: 1px 4px; border: 1px solid currentColor; border-radius: 2px; }
+.survey-camera { position: absolute; bottom: 45px; left: var(--edge); font-size: .75rem; }
+.game-inspection { position: absolute; bottom: 85px; right: var(--edge); width: min(365px, 33vw); z-index: 3; }
+.game-inspection h2 { margin: 5px 0; font: 700 1.85rem/.94 var(--display); }
+.game-inspection .inspection-camera-help { margin-top: 12px; color: #d2e8d5; font-size: .67rem; }
+.timeline-controls .presentation-focus select { width: 124px; padding-inline: 5px; }
+.hardware-tag.context { background: #173128e8; font-size: .61rem; border-color: #c5b482; }
+.hardware-tag.context strong { font-size: .69rem; }
+@media (max-width: 700px) {
+  .mode-choices { gap: 5px; }
+  .mode-choice { padding: 8px 7px; }
+  .mode-choice strong { font-size: .61rem; }
+  .mode-choice span { font-size: .62rem; }
+  .game-inspection { right: var(--edge); bottom: 152px; width: 36vw; max-height: 36dvh !important; padding: 7px; }
+  .game-inspection h2 { font-size: 1.02rem; }
+  .game-inspection p, .game-inspection dl { font-size: .59rem; }
+  .game-inspection dl div { grid-template-columns: 1fr; gap: 0; margin-bottom: 4px; }
+  .survey-camera { left: auto; right: var(--edge); bottom: 100px; }
+  .timeline-controls .presentation-focus select { width: 84px; font-size: .55rem; }
+  .hud-active:not(.hud-driving) .mission-progress { right: calc(var(--edge) + 217px); }
+  .drive-objective .drive-action { font-size: .66rem; padding: 4px 6px; min-height: 30px; }
+}

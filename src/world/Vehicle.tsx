@@ -63,7 +63,7 @@ export function Vehicle() {
     }
   })
   return <group ref={vehicle} onClick={(event) => {
-    if (useGame.getState().control !== 'presenter' || event.delta > 4) return
+    if (useGame.getState().control === 'auto' || event.delta > 4) return
     event.stopPropagation()
     useGame.getState().inspect('vehicle')
   }}><Suspense fallback={null}><Model wheelRig={rig} /></Suspense><BrakeLights /></group>

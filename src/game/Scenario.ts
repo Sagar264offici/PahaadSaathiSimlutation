@@ -1,6 +1,6 @@
-export type Focus = 'world' | 'vehicle' | 'rockfall' | '1E' | '2L' | '3MH' | 'packet' | 'cloud' | 'community' | 'production'
+export type Focus = 'world' | 'vehicle' | 'rockfall' | 'NODE-01' | 'NODE-02' | 'GW-01' | 'packet' | 'cloud' | 'community' | 'production'
 export type Verification = 'Normal' | 'Reported' | 'Under review' | 'Corroborated' | 'Confirmed closure' | 'Resolved' | 'Rejected'
-type PacketStep = 'ready' | 'sending-1E' | 'at-2L' | 'forwarding-2L' | 'at-3MH' | 'processing' | 'processed'
+type PacketStep = 'ready' | 'sending-NODE-01' | 'at-NODE-02' | 'forwarding-NODE-02' | 'at-GW-01' | 'processing' | 'processed'
 export type Command = 'rockfall' | 'resetRockfall' | 'block' | 'vibration' | 'motion' | 'generate' |
   'send' | 'receiveRelay' | 'forward' | 'receiveGateway' | 'process' | 'validate' | 'sync' |
   'app' | 'draft' | 'submit' | 'correlate' | 'review' | 'corroborate' | 'confirm' | 'reject' | 'resolve' |
@@ -15,8 +15,8 @@ export const VEHICLE_AT_JUNCTION = 41
 export const REPORT_ID = 'CR-008'
 export const REPORT_CATEGORIES = ['Rockfall', 'Landslide', 'Road blockage', 'Fresh cracks', 'Flooding', 'Fallen tree', 'Damaged road', 'Other dangerous condition'] as const
 export type ReportCategory = typeof REPORT_CATEGORIES[number]
-export const EVENT_SEQUENCE = '00421'
-export const OBSERVATION = { zone: 'RIDGE-CUT 07', gps: '30.3274° N, 79.6128° E', category: 'Rockfall', description: 'Road blocked by fallen rocks.' } as const
+export const EVENT_SEQUENCE = 'PS-001'
+export const OBSERVATION = { zone: 'RIDGE-CUT 07', gps: '30.3274° N, 79.6128° E', category: 'Landslide', description: 'Slope debris is blocking both lanes.' } as const
 const sensorLocation = { latitude: 30.3275, longitude: 79.6126, zone: OBSERVATION.zone }
 const reportLocation = { latitude: 30.3274, longitude: 79.6128, zone: OBSERVATION.zone }
 const relativeDistance = Math.hypot(
@@ -25,19 +25,19 @@ const relativeDistance = Math.hypot(
 )
 
 function validPacket(packet: Packet, hop: 0 | 1) {
-  return packet.type === 'ROCKFALL' && packet.origin === '1E' && /^\d{5}$/.test(packet.sequence) &&
-    packet.hop === hop && packet.ttl === 8 - hop && packet.sender === (hop === 0 ? '1E' : '2L')
+  return packet.type === 'LANDSLIDE WARNING' && packet.origin === 'NODE-01' && /^PS-\d{3}$/.test(packet.sequence) &&
+    packet.hop === hop && packet.ttl === 8 - hop && packet.sender === (hop === 0 ? 'NODE-01' : 'NODE-02')
 }
 
 function observationsMatch(s: Scenario) {
-  return s.packet !== null && s.observedAt !== null && (s.reportCategory === 'Rockfall' || s.reportCategory === 'Road blockage') && sensorLocation.zone === reportLocation.zone &&
+  return s.packet !== null && s.observedAt !== null && (['Landslide', 'Rockfall', 'Road blockage'] as ReportCategory[]).includes(s.reportCategory) && sensorLocation.zone === reportLocation.zone &&
     relativeDistance < 50 && Math.abs(s.packet.createdAt - s.observedAt) <= 1800
 }
 
 type Packet = {
-  type: 'ROCKFALL'
-  origin: '1E'
-  sender: '1E' | '2L'
+  type: 'LANDSLIDE WARNING'
+  origin: 'NODE-01'
+  sender: 'NODE-01' | 'NODE-02'
   sequence: string
   hop: number
   ttl: number
@@ -88,7 +88,7 @@ export function initialScenario(): Scenario {
     internet: true, sync: 'idle', syncAt: null, sensorInCloud: false, pendingSensor: false, pendingProbe: false,
     writingSensor: false, writingProbe: false, probeAt: null, probeReceived: false,
     seen: [], duplicate: 'Unchecked', report: 'none', reportAt: null, observedAt: null,
-    reportCategory: 'Rockfall', reportDescription: OBSERVATION.description, correlated: false, validated: false,
+    reportCategory: OBSERVATION.category, reportDescription: OBSERVATION.description, correlated: false, validated: false,
     verification: 'Normal', routeAt: null, turnAt: null, architecture: 'prototype', alert: false, log: [],
   }
 }
@@ -120,11 +120,11 @@ function settleAt(s: Scenario, now: number) {
     const probe = next.probeAt !== null && !next.probeReceived ? next.probeAt + 8 : Infinity
     const at = Math.min(rock, packet, cloud, phone, probe)
     if (at > now) return next
-    if (at === rock) next = logged(next, at, 'MAJOR ROCKFALL · BOTH LANES BLOCKED', { settled: true })
+    if (at === rock) next = logged(next, at, 'LANDSLIDE DEBRIS · BOTH LANES BLOCKED', { settled: true })
     else if (at === packet && next.packet) {
       const key = next.packet.origin + '/' + next.packet.sequence
       const duplicate = next.seen.includes(key)
-      next = logged(next, at, duplicate ? '3MH SUPPRESSED DUPLICATE PACKET' : '3MH VALIDATED ORIGIN AND SEQUENCE · GATEWAY PROCESSING COMPLETE', {
+      next = logged(next, at, duplicate ? 'GW-01 SUPPRESSED DUPLICATE PACKET' : 'GW-01 VALIDATED ORIGIN AND SEQUENCE · GATEWAY PROCESSING COMPLETE', {
         packet: { ...next.packet, step: 'processed', at },
         duplicate: duplicate ? 'Suppressed' : 'Passed',
         seen: duplicate ? next.seen : [...next.seen, key],
@@ -144,7 +144,7 @@ function settleAt(s: Scenario, now: number) {
       report: 'submitted', verification: next.verification === 'Normal' ? 'Reported' : next.verification,
     })
     else if (at === probe) {
-      next = logged(next, at, '3MH RECEIVED RF DIAGNOSTIC 00422 · LOCAL LINK ACTIVE', {
+      next = logged(next, at, 'GW-01 RECEIVED RF DIAGNOSTIC PS-002 · LOCAL LINK ACTIVE', {
         probeReceived: true, pendingProbe: true,
         sync: next.internet ? next.sync : 'pending',
       })
@@ -164,20 +164,20 @@ export function commandIssue(s: Scenario, command: Command, now: number): string
     case 'block': return roadIsBlocked(s) ? 'The primary road is already blocked.' : undefined
     case 'vibration': return s.vibrationAt !== null ? 'The digital trigger has already been recorded.' : undefined
     case 'motion': return s.motion ? 'Motion observation already recorded.' : undefined
-    case 'generate': return packet ? 'An event packet already exists.' : s.vibrationAt === null && !s.motion ? 'Record vibration or motion at 1E first.' : undefined
-    case 'send': return !packet || (packet.step !== 'ready' && packet.step !== 'processed') ? 'Generate a packet at 1E, or let the current delivery finish.' : undefined
+    case 'generate': return packet ? 'An event packet already exists.' : s.vibrationAt === null && !s.motion ? 'Record vibration or motion at NODE-01 first.' : undefined
+    case 'send': return !packet || (packet.step !== 'ready' && packet.step !== 'processed') ? 'Generate a packet at NODE-01, or let the current delivery finish.' : undefined
     case 'receiveRelay':
-      return packet?.step !== 'sending-1E' ? 'Send the packet from 1E first.' : now < packet.at + FLIGHT ? 'Packet is still in flight to 2L.' : !validPacket(packet, 0) ? '2L rejected the packet structure.' : undefined
-    case 'forward': return packet?.step !== 'at-2L' ? 'Receive and validate the packet at 2L first.' : undefined
+      return packet?.step !== 'sending-NODE-01' ? 'Send the packet from NODE-01 first.' : now < packet.at + FLIGHT ? 'Packet is still in flight to NODE-02.' : !validPacket(packet, 0) ? 'NODE-02 rejected the packet structure.' : undefined
+    case 'forward': return packet?.step !== 'at-NODE-02' ? 'Receive and validate the packet at NODE-02 first.' : undefined
     case 'receiveGateway':
-      return packet?.step !== 'forwarding-2L' ? 'Forward the packet from 2L first.' : now < packet.at + FLIGHT ? 'Packet is still in flight to 3MH.' : !validPacket(packet, 1) ? '3MH rejected the packet origin, sequence, or hop metadata.' : undefined
-    case 'process': return packet?.step !== 'at-3MH' ? 'Receive the forwarded packet at 3MH first.' : undefined
+      return packet?.step !== 'forwarding-NODE-02' ? 'Forward the packet from NODE-02 first.' : now < packet.at + FLIGHT ? 'Packet is still in flight to GW-01.' : !validPacket(packet, 1) ? 'GW-01 rejected the packet origin, sequence, or hop metadata.' : undefined
+    case 'process': return packet?.step !== 'at-GW-01' ? 'Receive the forwarded packet at GW-01 first.' : undefined
     case 'validate': return packet?.step !== 'processed' ? 'Complete gateway processing first.' : s.validated ? 'The evidence metadata has already been reviewed.' : undefined
-    case 'sync': return packet?.step !== 'processed' ? 'Complete gateway processing first.' : s.writingSensor || s.sensorInCloud ? 'The 1E record is already synchronizing or in Supabase.' : undefined
+    case 'sync': return packet?.step !== 'processed' ? 'Complete gateway processing first.' : s.writingSensor || s.sensorInCloud ? 'The NODE-01 record is already synchronizing or in Supabase.' : undefined
     case 'app': return undefined
     case 'draft': return s.report === 'sending' || s.report === 'submitted' ? 'A report is already submitted or in transit.' : undefined
     case 'submit': return s.report !== 'draft' ? 'Create a community report first.' : !s.reportDescription.trim() ? 'Enter a description for the report.' : !s.internet ? 'Restore internet to submit the community report.' : undefined
-    case 'correlate': return s.correlated ? 'The nearby observations are already associated.' : !s.sensorInCloud || s.report !== 'submitted' ? 'Sync the 1E event and submit the community report first.' : !reviewable ? 'An active report is required.' : !observationsMatch(s) ? 'The simulated observations must describe a matching hazard nearby and close in time.' : undefined
+    case 'correlate': return s.correlated ? 'The nearby observations are already associated.' : !s.sensorInCloud || s.report !== 'submitted' ? 'Sync the NODE-01 event and submit the community report first.' : !reviewable ? 'An active report is required.' : !observationsMatch(s) ? 'The simulated observations must describe a matching hazard nearby and close in time.' : undefined
     case 'review': return s.verification !== 'Reported' ? 'A reported observation is required.' : undefined
     case 'corroborate': return s.verification !== 'Under review' ? 'Mark the report under review first.' : !s.correlated ? 'Correlate the two evidence sources first.' : undefined
     case 'confirm': return s.verification !== 'Corroborated' ? 'A moderator must review and corroborate the evidence first.' : !s.validated ? 'Review the gateway evidence metadata first.' : !roadIsBlocked(s) ? 'Field verification must find a blockage first.' : undefined
@@ -198,19 +198,19 @@ export function applyCommand(s: Scenario, command: Command, t: number): Scenario
   const packet = s.packet
   if (commandIssue(s, command, t)) return s
   switch (command) {
-    case 'rockfall': return logged(s, t, 'TREMOR AT THE EXPOSED ROCK CUT', { rockAt: t, settled: false })
+    case 'rockfall': return logged(s, t, 'LANDSLIDE INITIATED ON THE DISTANT SLOPE', { rockAt: t, settled: false })
     case 'resetRockfall': return logged(initialScenario(), t, 'EXERCISE INCIDENT RESET · ROAD OPEN', { internet: s.internet, architecture: s.architecture, log: s.log })
     case 'block': return logged(s, t, 'SIMULATED FIELD BARRIER · PRIMARY ROAD BLOCKED', { barrier: true })
-    case 'vibration': return logged(s, t, '1E · SW-420 DIGITAL TRIGGER ACTIVE', { vibrationAt: t })
-    case 'motion': return logged(s, t, '1E · MPU-6050 ABNORMAL MOTION OBSERVED', { motion: true })
-    case 'generate': return logged(s, t, '1E · ROCKFALL CANDIDATE EVENT 00421 GENERATED', {
-      packet: { type: 'ROCKFALL', origin: '1E', sender: '1E', sequence: EVENT_SEQUENCE, hop: 0, ttl: 8, step: 'ready', at: t, createdAt: t },
+    case 'vibration': return logged(s, t, 'NODE-01 · SW-420 DIGITAL TRIGGER ACTIVE', { vibrationAt: t })
+    case 'motion': return logged(s, t, 'NODE-01 · MPU6050 ABNORMAL MOTION OBSERVED', { motion: true })
+    case 'generate': return logged(s, t, 'NODE-01 · ESP32-C3 GENERATED LANDSLIDE WARNING PS-001', {
+      packet: { type: 'LANDSLIDE WARNING', origin: 'NODE-01', sender: 'NODE-01', sequence: EVENT_SEQUENCE, hop: 0, ttl: 8, step: 'ready', at: t, createdAt: t },
     })
-    case 'send': return packet ? logged(s, t, '1E TRANSMITTING TO 2L OVER HC-12', { packet: { ...packet, sender: '1E', hop: 0, ttl: 8, step: 'sending-1E', at: t }, duplicate: 'Unchecked' }) : s
-    case 'receiveRelay': return packet ? logged(s, t, '2L RECEIVED 00421 · PACKET STRUCTURE VALIDATED', { packet: { ...packet, step: 'at-2L', at: t } }) : s
-    case 'forward': return packet && packet.ttl > 0 ? logged(s, t, '2L FORWARDED 00421 · CUSTOM FIRMWARE', { packet: { ...packet, sender: '2L', hop: packet.hop + 1, ttl: packet.ttl - 1, step: 'forwarding-2L', at: t } }) : s
-    case 'receiveGateway': return packet ? logged(s, t, '3MH RECEIVED 00421 · HC-12 TO TINKER BOARD UART', { packet: { ...packet, step: 'at-3MH', at: t } }) : s
-    case 'process': return packet ? logged(s, t, '3MH GATEWAY PROCESSING STARTED', { packet: { ...packet, step: 'processing', at: t } }) : s
+    case 'send': return packet ? logged(s, t, 'NODE-01 TRANSMITTING TO NODE-02 OVER LoRa', { packet: { ...packet, sender: 'NODE-01', hop: 0, ttl: 8, step: 'sending-NODE-01', at: t }, duplicate: 'Unchecked' }) : s
+    case 'receiveRelay': return packet ? logged(s, t, 'NODE-02 RECEIVED PS-001 · PACKET STRUCTURE VALIDATED', { packet: { ...packet, step: 'at-NODE-02', at: t } }) : s
+    case 'forward': return packet && packet.ttl > 0 ? logged(s, t, 'NODE-02 FORWARDED PS-001 · CUSTOM FORWARDING PROTOCOL', { packet: { ...packet, sender: 'NODE-02', hop: packet.hop + 1, ttl: packet.ttl - 1, step: 'forwarding-NODE-02', at: t } }) : s
+    case 'receiveGateway': return packet ? logged(s, t, 'GW-01 RECEIVED LoRa PACKET PS-001 · TINKER BOARD INTERFACE', { packet: { ...packet, step: 'at-GW-01', at: t } }) : s
+    case 'process': return packet ? logged(s, t, 'GW-01 GATEWAY PROCESSING STARTED', { packet: { ...packet, step: 'processing', at: t } }) : s
     case 'validate': return logged(s, t, 'GATEWAY EVIDENCE METADATA REVIEWED', { validated: true })
     case 'sync': return syncNow({ ...s, pendingSensor: true }, t)
     case 'retry': return s.sync === 'syncing' ? syncNow(logged(s, t, 'SIMULATED SYNC RETRY REQUESTED', {
@@ -220,7 +220,7 @@ export function applyCommand(s: Scenario, command: Command, t: number): Scenario
     case 'app': return s.report === 'none' ? { ...s, report: 'open' } : s
     case 'draft': return logged(s, t, 'COMMUNITY REPORT DRAFTED · SIMULATED PHOTO ATTACHED', { report: 'draft', observedAt: t })
     case 'submit': return logged(s, t, 'SETTLEMENT REPORT SUBMITTED TO SUPABASE', { report: 'sending', reportAt: t })
-    case 'correlate': return logged(s, t, '1E AND COMMUNITY OBSERVATIONS MATCHED AT ' + OBSERVATION.zone, { correlated: true })
+    case 'correlate': return logged(s, t, 'NODE-01 AND COMMUNITY OBSERVATIONS MATCHED AT ' + OBSERVATION.zone, { correlated: true })
     case 'review': return logged(s, t, 'MODERATOR OPENED HAZARD REVIEW', { verification: 'Under review' })
     case 'corroborate': return logged(s, t, 'MODERATOR CORROBORATED MULTI-SOURCE EVIDENCE', { verification: 'Corroborated' })
     case 'confirm': return logged(s, t, 'AUTHORIZED FIELD CHECK CONFIRMED ROAD CLOSURE', { verification: 'Confirmed closure' })
@@ -230,7 +230,7 @@ export function applyCommand(s: Scenario, command: Command, t: number): Scenario
     })
     case 'planRoute': return logged(s, t, 'SIMULATED ALTERNATE ROUTE GENERATED', { routeAt: t })
     case 'driveRoute': return logged(s, t, 'ROUTE UPDATED · SUV FOLLOWING THE BYPASS', { turnAt: Math.max(t, VEHICLE_AT_JUNCTION) })
-    case 'offline': return logged(s, t, 'INTERNET OFFLINE · RF DIAGNOSTIC 00422 SENT', {
+    case 'offline': return logged(s, t, 'INTERNET OFFLINE · RF DIAGNOSTIC PS-002 SENT', {
       internet: false, sync: 'pending', syncAt: null,
       pendingSensor: s.pendingSensor || s.writingSensor, pendingProbe: s.pendingProbe || s.writingProbe,
       writingSensor: false, writingProbe: false,
